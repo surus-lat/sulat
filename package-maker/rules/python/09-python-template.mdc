@@ -1,0 +1,23 @@
+---
+description: Template
+globs: **/*.py
+---
+
+- In every source add the following code and cover :
+```python
+#!/usr/bin/env python
+```
+
+- Put the import libraries
+- Then put the following template
+
+```python
+__author__ = "KennBro"
+__copyright__ = "LLC"
+__credits__ = ["KennBro"]
+__license__ = "GPL"
+__version__ = "0.0.1"
+__maintainer__ = "KennBro"
+__email__ = "kennbro <at> protonmail <dot> com"
+__status__ = "Development"
+```

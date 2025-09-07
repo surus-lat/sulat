@@ -1,0 +1,27 @@
+---
+description: Employs the logging module judiciously to log important events, warnings, and errors.
+globs: **/*.py
+---
+# Logging
+
+**Logging:** Employ the `logging` module judiciously to log important events, warnings, and errors.
+Use this function in every main.py to set the logging configuration
+
+```python
+def setup_logging():
+    """
+    Configure the logging format with coloredlogs
+    """
+    logger = logging.getLogger(__name__)
+    coloredlogs.install(
+        level="INFO",
+        logger=logger,
+        fmt="%(asctime)s %(name)s %(lineno)d %(levelname)s %(message)s",
+    )
+    return logger
+```
+
+Propagate the logging in every function like 
+```python
+    logger = logging.getLogger(__name__)
+```
