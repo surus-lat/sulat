@@ -1,7 +1,6 @@
 <div align="center">
-  <img src="data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTAwIiBoZWlnaHQ9IjEwMCIgdmlld0JveD0iMCAwIDEwMCAxMDAiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+CiAgPGNpcmNsZSBjeD0iNTAiIGN5PSI1MCIgcj0iNDAiIGZpbGw9IiMwMDAwMDAiLz4KICA8L3N2Zz4=" alt="Surus Logo" width="80" height="80">
-  
-  # Surus
+  <img src="public/icon.png" alt="icon" width="80" height="80">
+  # surus
   
   *an opinionated way of doing ai*
 </div>
