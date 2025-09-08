@@ -3,11 +3,11 @@ requires = ["setuptools>=61.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "surus"
+name = "surus-ai"
 version = "0.1.0"
-description = "An opinionated way of doing AI - Audio transcription with high-performance models"
+description = "An opinionated way of doing AI - Task-oriented ai nodes for general-computing"
 readme = "README.md"
-authors = [{name = "SURUS AI", email = "contact@surus.ai"}]
+authors = [{name = "SURUS AI", email = "contact@surus.lat"}]
 license = {text = "MIT"}
 requires-python = ">=3.8"
 keywords = ["ai", "transcription", "audio", "whisper", "canary", "speech-to-text"]
@@ -30,9 +30,9 @@ dependencies = [
 ]
 
 [project.urls]
-Homepage = "https://surus.ai"
-Repository = "https://github.com/surus-ai/surus"
-Documentation = "https://docs.surus.ai"
+Homepage = "https://surus.lat"
+Repository = "https://github.com/surus-lat/surus-ai"
+Documentation = "https://docs.surus.lat"
 
 [project.optional-dependencies]
 dev = [

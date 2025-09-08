@@ -1,6 +1,6 @@
 <div align="center">
+  surus \n
   <img src="public/icon.png" alt="icon" width="80" height="80">
-  # surus
   
   *an opinionated way of doing ai*
 </div>
@@ -19,11 +19,11 @@ uv pip install -e .
 ```python
 import surus
 
-# Basic transcription (Whisper model)
+# Basic transcription
 text = surus.transcribe("audio.wav")
 
-# High performance transcription (Canary model) 
-text = surus.transcribe("audio.wav", high_performance=True, source_lang="es")
+# control source and target langs
+text = surus.transcribe("audio.wav", source_lang="es", target_lang="es")
 ```
 
 ### Environment Setup
