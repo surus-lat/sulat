@@ -1,4 +1,4 @@
-import surus
+import boi
 from dotenv import load_dotenv
 load_dotenv()
 

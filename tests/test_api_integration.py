@@ -10,7 +10,7 @@ __email__ = "contact@surus.ai"
 __status__ = "Development"
 
 import os
-import surus
+import boi
 
 def test_api_integration():
     """Test SURUS transcribe with real API (requires SURUS_API_KEY and audio file)"""

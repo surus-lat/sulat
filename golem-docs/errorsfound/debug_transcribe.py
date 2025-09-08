@@ -4,7 +4,7 @@
 
 
 import os
-import surus
+import boi
 import requests
 
 def debug_transcribe():

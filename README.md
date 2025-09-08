@@ -1,10 +1,8 @@
 <div align="center">
-  surus \n
+  <h1>boi</h1>
   <img src="public/icon.png" alt="icon" width="80" height="80">
-  
-  *an opinionated way of doing ai*
+  <p><em>an opinionated way of doing ai</em></p>
 </div>
-
 
 ## Installation
 
@@ -17,13 +15,13 @@ uv pip install -e .
 ## Usage
 
 ```python
-import surus
+import boi
 
 # Basic transcription
-text = surus.transcribe("audio.wav")
+text = boi.transcribe("audio.wav")
 
 # control source and target langs
-text = surus.transcribe("audio.wav", source_lang="es", target_lang="es")
+text = boi.transcribe("audio.wav", source_lang="es", target_lang="es")
 ```
 
 ### Environment Setup

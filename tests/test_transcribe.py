@@ -10,18 +10,18 @@ __email__ = "contact@surus.ai"
 __status__ = "Development"
 
 import pytest
-import surus
+import boi
 
 
 def test_transcribe_function_exists():
     """Test that transcribe function is available"""
-    assert hasattr(surus, 'transcribe')
+    assert hasattr(boi, 'transcribe')
 
 
 def test_transcribe_parameters():
     """Test transcribe function has correct parameters"""
     import inspect
-    sig = inspect.signature(surus.transcribe)
+    sig = inspect.signature(boi.transcribe)
     expected_params = ['audio_input', 'high_performance', 'source_lang', 'target_lang', 'response_format', 'temperature']
     
     for param in expected_params:
@@ -38,7 +38,7 @@ def test_transcribe_missing_api_key():
     
     try:
         with pytest.raises(ValueError, match="SURUS_API_KEY environment variable not set"):
-            surus.transcribe("dummy.wav")
+            boi.transcribe("dummy.wav")
     finally:
         # Restore API key
         if old_key:
