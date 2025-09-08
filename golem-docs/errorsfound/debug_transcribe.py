@@ -4,7 +4,7 @@
 
 
 import os
-import boi
+import boio
 import requests
 
 def debug_transcribe():
