@@ -27,8 +27,8 @@ AI models = learned programs that perform tasks.
 
 **Usage:**
 ```python
-surus.transcribe(audio)                    # Default
-surus.transcribe(audio, high_performance=True)  # Best quality
+surus.transcribe(audio)                      # Best quality (default)
+surus.transcribe(audio, high_performance=False)  # Faster/cheaper
 ```
 
 **Development:**
