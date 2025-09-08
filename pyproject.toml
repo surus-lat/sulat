@@ -5,15 +5,33 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "surus"
 version = "0.1.0"
-description = "Task-oriented AI library for audio, text, and vision"
-authors = [{name = "SURUS AI"}]
+description = "An opinionated way of doing AI - Audio transcription with high-performance models"
+readme = "README.md"
+authors = [{name = "SURUS AI", email = "contact@surus.ai"}]
 license = {text = "MIT"}
 requires-python = ">=3.8"
+keywords = ["ai", "transcription", "audio", "whisper", "canary", "speech-to-text"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.8",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Multimedia :: Sound/Audio :: Speech",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
 dependencies = [
     "requests>=2.25.0",
     "python-dotenv>=1.0.0",
-    "dotenv>=0.9.9",
 ]
+
+[project.urls]
+Homepage = "https://surus.ai"
+Repository = "https://github.com/surus-ai/surus"
+Documentation = "https://docs.surus.ai"
 
 [project.optional-dependencies]
 dev = [

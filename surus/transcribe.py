@@ -3,8 +3,8 @@
 __author__ = "SURUS AI"
 __copyright__ = "LLC"
 __credits__ = ["SURUS AI"]
-__license__ = "GPL"
-__version__ = "0.0.1"
+__license__ = "MIT"
+__version__ = "0.1.0"
 __maintainer__ = "SURUS AI"
 __email__ = "contact@surus.ai"
 __status__ = "Development"
@@ -20,8 +20,8 @@ load_dotenv()
 
 def transcribe(audio_input: Union[str, BinaryIO], 
                high_performance: bool = True,
-               source_lang: Optional[str] = None, 
-               target_lang: Optional[str] = None,
+               source_lang: Optional[str] = 'es', 
+               target_lang: Optional[str] = 'es',
                response_format: str = "json", 
                temperature: float = 0.0) -> str:
     """
@@ -29,7 +29,7 @@ def transcribe(audio_input: Union[str, BinaryIO],
     
     Args:
         audio_input: Path to audio file or file-like object
-        high_performance: Use best model (nvidia/canary-1b-v2) by default, set False for faster/cheaper Whisper
+        high_performance: Use best model (nvidia/canary-1b-v2) for higher accuracy
         source_lang: Source language for Canary model (e.g., 'es', 'en')  
         target_lang: Target language for Canary model (e.g., 'es', 'en')
         response_format: Output format for Whisper models ('json', 'text', 'srt', 'verbose_json', 'vtt')

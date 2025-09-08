@@ -1,0 +1,9 @@
+include README.md
+include LICENSE
+include pyproject.toml
+recursive-include surus *.py
+recursive-exclude * __pycache__
+recursive-exclude * *.py[co]
+recursive-exclude golem-docs *
+recursive-exclude tests *
+exclude testing.py
