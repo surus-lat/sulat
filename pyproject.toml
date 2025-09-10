@@ -3,7 +3,7 @@ requires = ["setuptools>=61.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "boi"
+name = "owai"
 version = "0.1.0"
 description = "An opinionated way of doing AI - Task-oriented ai nodes for general-computing"
 readme = "README.md"
@@ -26,13 +26,11 @@ classifiers = [
 dependencies = [
     "requests>=2.25.0",
     "python-dotenv>=1.0.0",
-    "twine>=6.1.0",
-    "pytest>=8.3.5",
 ]
 
 [project.urls]
 Homepage = "https://surus.lat"
-Repository = "https://github.com/surus-lat/boi"
+Repository = "https://github.com/surus-lat/owai"
 Documentation = "https://docs.surus.lat"
 
 [project.optional-dependencies]
@@ -40,6 +38,8 @@ dev = [
     "pytest>=7.0.0",
     "black>=22.0.0",
     "ruff>=0.1.0",
+    "twine>=6.1.0",
+    "pytest>=8.3.5",
 ]
 
 [tool.setuptools.packages.find]

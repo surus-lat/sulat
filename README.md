@@ -1,7 +1,7 @@
 <div align="center">
-  <h1>boi</h1>
+  <h1>owai</h1>
   <img src="public/icon.png" alt="icon" width="80" height="80">
-  <p><em>an opinionated way of doing ai</em></p>
+  <p><em>an Opinionated Way of doing AI</em></p>
 </div>
 
 ## Installation
@@ -15,13 +15,13 @@ uv pip install -e .
 ## Usage
 
 ```python
-import boi
+import owai
 
 # Basic transcription
-text = boi.transcribe("audio.wav")
+text = owai.transcribe("audio.wav")
 
 # control source and target langs
-text = boi.transcribe("audio.wav", source_lang="es", target_lang="es")
+text = owai.transcribe("audio.wav", source_lang="es", target_lang="es")
 ```
 
 ### Environment Setup

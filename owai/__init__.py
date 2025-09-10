@@ -9,3 +9,7 @@ __maintainer__ = "neosanma"
 __email__ = "contacto@neosanma.ai"
 __status__ = "Development"
 
+from .transcribe import transcribe
+
+__all__ = ["transcribe"]
+

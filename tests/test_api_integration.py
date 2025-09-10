@@ -1,19 +1,20 @@
 #!/usr/bin/env python
 
-__author__ = "SURUS AI"
-__copyright__ = "LLC"
+__author__ = "neosanma"
+__copyright__ = "SURUS AI"
 __credits__ = ["SURUS AI"]
-__license__ = "GPL"
-__version__ = "0.0.1"
-__maintainer__ = "SURUS AI" 
-__email__ = "contact@surus.ai"
+__license__ = "MIT"
+__version__ = "0.1.0"
+__maintainer__ = "neosanma"
+__email__ = "contacto@neosanma.ai"
 __status__ = "Development"
 
+
 import os
-import boi
+import owai
 
 def test_api_integration():
-    """Test SURUS transcribe with real API (requires SURUS_API_KEY and audio file)"""
+    """Test owai transcribe with real API (requires SURUS_API_KEY and audio file)"""
     
     # Check API key
     api_key = os.getenv("SURUS_API_KEY")
