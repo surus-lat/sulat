@@ -43,6 +43,19 @@ text = sulat.transcribe(
     response_format="json",  # Response format
     temperature=0.0          # Temperature for generation
 )
+
+# Extract structured information from text
+text = "The quick brown fox jumps over the lazy dog."
+json_schema = {
+    "type": "object",
+    "properties": {
+        "animal": {"type": "string"},
+        "action": {"type": "string"}
+    }
+}
+
+result = sulat.extract(text, json_schema)
+print(result)  # Outputs a dictionary with extracted information
 ```
 
 ### Environment Setup
