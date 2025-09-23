@@ -12,5 +12,5 @@ __status__ = "Development"
 from .transcribe import transcribe
 from .extract import extract
 
-__all__ = ["transcribe", "extract"]
+__all__ = ["extract", "transcribe"]
 
