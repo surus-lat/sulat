@@ -10,6 +10,7 @@ __email__ = "contacto@neosanma.ai"
 __status__ = "Development"
 
 from .transcribe import transcribe
+from .extract import extract
 
-__all__ = ["transcribe"]
+__all__ = ["transcribe", "extract"]
 
