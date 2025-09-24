@@ -13,6 +13,6 @@ from .config import ensure_cache_dir, get_cache_dir  # Ensure SURUS_CACHE is set
 ensure_cache_dir()
 
 from .transcribe import transcribe
-from .extract import extract
+from .extract import extract, autotune
 
-__all__ = ["ensure_cache_dir", "extract", "get_cache_dir", "transcribe"]
+__all__ = ["ensure_cache_dir", "get_cache_dir", "transcribe", "extract", "autotune"]

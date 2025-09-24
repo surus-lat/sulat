@@ -26,6 +26,8 @@ classifiers = [
 dependencies = [
     "requests>=2.25.0",
     "python-dotenv>=1.0.0",
+    "dspy>=2.4.0",
+    "datasets>=2.0.0",
 ]
 
 [project.urls]
