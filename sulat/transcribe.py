@@ -1,5 +1,3 @@
-#!/usr/bin/env python
-
 __author__ = "SURUS AI"
 __copyright__ = "LLC"
 __credits__ = ["SURUS AI"]

@@ -1,3 +1,4 @@
+.env
 .venv
 sulat.egg-info
 sulat/__pycache__
