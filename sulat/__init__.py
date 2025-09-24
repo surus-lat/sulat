@@ -9,8 +9,10 @@ __maintainer__ = "neosanma"
 __email__ = "contacto@neosanma.ai"
 __status__ = "Development"
 
+from .config import ensure_cache_dir, get_cache_dir  # Ensure SURUS_CACHE is set on import
+ensure_cache_dir()
+
 from .transcribe import transcribe
 from .extract import extract
 
-__all__ = ["extract", "transcribe"]
-
+__all__ = ["ensure_cache_dir", "extract", "get_cache_dir", "transcribe"]

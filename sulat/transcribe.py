@@ -13,6 +13,7 @@ import tempfile
 import warnings
 from typing import Union, BinaryIO, Optional
 from dotenv import load_dotenv
+from .config import get_cache_dir
 
 # Suppress pydub regex warnings in Python 3.12+
 warnings.filterwarnings("ignore", message="invalid escape sequence", category=SyntaxWarning)
@@ -25,7 +26,7 @@ def _ensure_pydub_imported() -> None:
     """Import pydub lazily and set availability flags.
 
     This avoids stale import-state issues when users install pydub after
-    importing boio within the same Python process.
+    importing sulat within the same Python process.
     """
     global AudioSegment, PYDUB_AVAILABLE
     if PYDUB_AVAILABLE is not None:
@@ -58,8 +59,10 @@ def _convert_to_mono(audio_path: str) -> str:
         print(f"Converting {audio.channels}-channel audio to mono...")
         audio = audio.set_channels(1)
     
-    # Create temporary file for mono audio
-    temp_file = tempfile.NamedTemporaryFile(delete=False, suffix='.wav')
+    # Create temporary file for mono audio under SURUS_CACHE
+    cache_dir = get_cache_dir()
+    # Use NamedTemporaryFile with dir to place it under our cache
+    temp_file = tempfile.NamedTemporaryFile(delete=False, suffix='.wav', dir=cache_dir)
     temp_path = temp_file.name
     temp_file.close()
     
@@ -91,7 +94,7 @@ def transcribe(audio_input: Union[str, BinaryIO],
         
     Behavior:
         - First, sends audio as-is to the SURUS API (server is expected to handle conversion).
-        - If the API responds with a stereo/mono channel error, boio will retry by converting
+        - If the API responds with a stereo/mono channel error, sulat will retry by converting
           locally to mono ONLY when pydub (and ffmpeg) are available.
         - If pydub is not available, a clear error message is raised with guidance.
     """
