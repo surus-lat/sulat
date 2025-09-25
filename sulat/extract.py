@@ -1116,9 +1116,11 @@ def extract(
                     pass
         
         if optimized_program is not None:
+            dspy.configure(lm=dspy.LM(os.getenv("MODEL_NAME", "litellm_proxy/google/gemma-3n-E4B-it"), api_base=os.getenv("SURUS_API_BASE", "https://api.surus.dev/functions/v1"), api_key=os.getenv("SURUS_API_KEY")))
             # For the optimized program, the loaded object might be a predictor or a complete pipeline
             # We need to call it appropriately based on its type
             try:
+
                 # First, try to call it directly as a predictor/function
                 if hasattr(optimized_program, 'forward') or callable(optimized_program):
                     result = optimized_program(**{input_key: text})
