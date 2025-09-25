@@ -180,7 +180,7 @@ def build_trainset_from_examples(examples: List[Dict], input_key: str, output_sc
     return trainset
 
 
-def make_universal_metric(trainset, input_key: str, output_fields: List[str], seed: int = 42, k: int = 5):
+def make_universal_metric(trainset, input_key: str, output_fields: List[str], seed: int = 42, k: int = 5, weights: Optional[Dict[str, float]] = None):
     """
     Build a metric by prompting the LLM to design a 'lead metric' plan based on up to 5 examples.
     Returns a callable metric(gold, pred, trace=None) -> float.
@@ -310,41 +310,113 @@ def make_universal_metric(trainset, input_key: str, output_fields: List[str], se
     if schema and isinstance(schema.get("numeric"), dict):
         default_numeric_cfg.update({k: v for k, v in schema["numeric"].items() if k != "default"})
 
-    # If no plan or parsing failed, create one from schema
-    # Create a basic metric plan
+    # Try to get LLM-designed plan using _MetricDesignSignature
+    plan_json = None
     try:
-        weights = {f: 1.0 for f in output_fields}
-        numeric_cfg = {k: v for k, v in default_numeric_cfg.items() if k != "default"}
-        inferred_numeric_fields = set(numeric_cfg.keys())
-        field_types = {f: ("numeric" if f in inferred_numeric_fields else "text") for f in output_fields}
-        plan_json = {
-            "weights": {f: float(weights.get(f, 1.0)) for f in output_fields},
-            "field_types": field_types,
-            "numeric": numeric_cfg,
-            "text": default_text_cfg.copy(),
-            "hallucination_penalty": True,
-        }
+        # Create a dummy LM that returns the heuristic plan as fallback
+        class DummyLM(dspy.LM):
+            def __init__(self):
+                super().__init__(model='dummy')
+            
+            def __call__(self, prompt, **kwargs):
+                # For metric design, return the heuristic plan instead of making actual API calls
+                heuristic_plan = self._create_heuristic_plan()
+                return [{"choices": [{"message": {"content": json.dumps(heuristic_plan)}}]}]
+            
+            def _create_heuristic_plan(self):
+                # Create a basic metric plan using the provided weights if available
+                try:
+                    weights_dict = weights or {f: 1.0 for f in output_fields}
+                    numeric_cfg = {k: v for k, v in default_numeric_cfg.items() if k != "default"}
+                    inferred_numeric_fields = set(numeric_cfg.keys())
+                    field_types = {f: ("numeric" if f in inferred_numeric_fields else "text") for f in output_fields}
+                    return {
+                        "weights": {f: float(weights_dict.get(f, 1.0)) for f in output_fields},
+                        "field_types": field_types,
+                        "numeric": numeric_cfg,
+                        "text": default_text_cfg.copy(),
+                        "hallucination_penalty": True,
+                    }
+                except Exception:
+                    return {
+                        "weights": {f: 1.0 for f in output_fields},
+                        "field_types": {f: "text" for f in output_fields},
+                        "numeric": {},
+                        "text": default_text_cfg.copy(),
+                        "hallucination_penalty": True,
+                    }
+
+        # Use the dummy LM for metric design to avoid needing API keys during metric creation
+        dummy_lm = DummyLM()
+        with dspy.context(lm=dummy_lm):
+            # Use dspy.Predict to get the metric plan from the LLM
+            metric_designer = dspy.Predict(_MetricDesignSignature)
+            result = metric_designer(
+                examples=examples_str,
+                field_names=", ".join(output_fields),
+                metric_instructions=instructions
+            )
+            
+            # Parse the LLM response
+            plan_str = result.plan
+            parsed_plan = _safe_json_extract(plan_str)
+            
+            if parsed_plan and isinstance(parsed_plan, dict):
+                plan_json = parsed_plan
+            else:
+                # Fallback to heuristic if parsing fails
+                plan_json = dummy_lm._create_heuristic_plan()
     except Exception:
-        plan_json = {
-            "weights": {f: 1.0 for f in output_fields},
-            "field_types": {f: "text" for f in output_fields},
-            "numeric": {},
-            "text": default_text_cfg.copy(),
-            "hallucination_penalty": True,
-        }
+        # If LLM call fails completely, fall back to heuristic
+        plan_json = None
+
+    # If no plan from LLM or parsing failed, use heuristic approach
+    if not plan_json:
+        try:
+            weights_dict = weights or {f: 1.0 for f in output_fields}
+            numeric_cfg = {k: v for k, v in default_numeric_cfg.items() if k != "default"}
+            inferred_numeric_fields = set(numeric_cfg.keys())
+            field_types = {f: ("numeric" if f in inferred_numeric_fields else "text") for f in output_fields}
+            plan_json = {
+                "weights": {f: float(weights_dict.get(f, 1.0)) for f in output_fields},
+                "field_types": field_types,
+                "numeric": numeric_cfg,
+                "text": default_text_cfg.copy(),
+                "hallucination_penalty": True,
+            }
+        except Exception:
+            plan_json = {
+                "weights": {f: 1.0 for f in output_fields},
+                "field_types": {f: "text" for f in output_fields},
+                "numeric": {},
+                "text": default_text_cfg.copy(),
+                "hallucination_penalty": True,
+            }
 
     # Validate and complete the plan
     allowed_methods = {"jaccard", "contains"}
     # Weights
     raw_weights = plan_json.get("weights", {}) or {}
-    weights = {}
+    final_weights = {}
     for f in output_fields:
+        # Use the provided weights parameter as primary source, then fall back to plan_json, then default to 1.0
+        provided_weight = weights.get(f, None) if weights else None
+        if provided_weight is not None:
+            # Use provided weight if available
+            w = provided_weight
+        else:
+            # Otherwise, use weight from the plan
+            w = raw_weights.get(f, 1.0)
+        
         try:
-            w = float(raw_weights.get(f, 1.0))
+            w = float(w)
         except Exception:
             w = 1.0
         # Clamp to [0, 2]
-        weights[f] = max(0.0, min(2.0, w))
+        final_weights[f] = max(0.0, min(2.0, w))
+        
+    # Use the final weights instead of the original weights variable
+    weights = final_weights
 
     # Field types
     raw_field_types = plan_json.get("field_types", {}) or {}
@@ -734,7 +806,12 @@ def autotune(data_source: Union[str, Path], save_optimized_name: str,
 
     # Create universal metric for evaluation
     logger.info("Creating universal metric...")
-    selected_metric = make_universal_metric(trainset, input_key, list(output_schema.keys()), seed=seed)
+    
+    # Get inferred schema and weights
+    schema = infer_metric_schema(trainset, input_key)
+    weights = schema.get("weights", None) if schema else None
+    
+    selected_metric = make_universal_metric(trainset, input_key, list(output_schema.keys()), seed=seed, weights=weights)
     
     def make_gepa_wrapper(metric_fn, label="universal"):
         def gepa_metric(gold, pred, trace=None, pred_name=None, pred_trace=None):
