@@ -55,11 +55,52 @@ def _to_int(text_or_num):
     return None
 
 
-def _norm(s):
+def _norm_text(s, keep_punct=False):
+    """Normalize text by removing punctuation optionally.
+    
+    Args:
+        s: Input string to normalize
+        keep_punct: Whether to preserve punctuation (True) or strip it (False)
+    
+    Returns:
+        Normalized string
+    """
     if s is None:
         return ""
-    s = re.sub(r"[^\\w\\s]", "", str(s))
+    
+    if keep_punct:
+        # Only normalize whitespace and case, keep punctuation
+        s = str(s)
+    else:
+        # Strip all punctuation except @ (for emails) and . (for URLs/decimals)
+        s = re.sub(r"[^\w\s@%.]", "", str(s))
+    
     return " ".join(s.strip().lower().split())
+
+
+def _norm(s):
+    """Legacy _norm function that removes all punctuation."""
+    return _norm_text(s, keep_punct=False)
+
+
+def _should_keep_punct_for_field(field_name):
+    """
+    Determine if punctuation should be preserved for a field based on its name.
+    
+    Args:
+        field_name: The name of the field
+        
+    Returns:
+        Boolean indicating whether to preserve punctuation
+    """
+    field_name_lower = field_name.lower()
+    # Check for common field patterns that require punctuation
+    punct_preserving_patterns = [
+        'email', 'url', 'website', 'phone', 'id', 'identifier', 
+        'uuid', 'guid', 'ip', 'address', 'account', 'username',
+        'domain', 'uri', 'path', 'ref', 'reference', 'code'
+    ]
+    return any(pattern in field_name_lower for pattern in punct_preserving_patterns)
 
 
 def _get_nested_value(data: Dict[str, Any], key: str) -> Any:
@@ -265,6 +306,68 @@ def make_universal_metric(trainset, input_key: str, output_fields: List[str], se
         except Exception:
             return None
 
+    def _parse_number(s):
+        """
+        Parse a string to a number with support for various formats:
+        - Thousands separators: 1,234.56
+        - Percentages: "12%" -> 0.12 or treated as 12 depending on context
+        - Magnitudes: 3k -> 3000, 1.2M -> 1200000
+        - Scientific notation: 1e3
+        - Ranges: "10–12" -> mean of min and max
+        """
+        if s is None:
+            return None
+        if isinstance(s, (int, float)):
+            return float(s)
+        
+        s_str = str(s).strip()
+        
+        # Handle ranges (e.g., "10-12", "10–12", "10 to 12")
+        range_patterns = [
+            r"(\d+(?:\.\d+)?)\s*[-–]\s*(\d+(?:\.\d+)?)",
+            r"(\d+(?:\.\d+)?)\s+to\s+(\d+(?:\.\d+)?)"
+        ]
+        for pattern in range_patterns:
+            match = re.search(pattern, s_str)
+            if match:
+                min_val = float(match.group(1))
+                max_val = float(match.group(2))
+                return (min_val + max_val) / 2  # Return mean of range
+        
+        # Handle magnitudes (k, M, B suffixes)
+        magnitude_patterns = {
+            r'(\d+(?:\.\d+)?)\s*k': lambda x: x * 1000,
+            r'(\d+(?:\.\d+)?)\s*M': lambda x: x * 1000000,
+            r'(\d+(?:\.\d+)?)\s*B': lambda x: x * 1000000000
+        }
+        for pattern, multiplier in magnitude_patterns.items():
+            match = re.search(pattern, s_str, re.IGNORECASE)
+            if match:
+                num = float(match.group(1))
+                return multiplier(num)
+        
+        # Handle percentages
+        percent_match = re.search(r'(\d+(?:\.\d+)?)\s*%', s_str)
+        if percent_match:
+            num = float(percent_match.group(1))
+            return num  # Return the percentage value as-is (e.g., 12 for "12%"), adjust as needed
+        
+        # Remove commas for thousands separators and try to parse
+        s_clean = re.sub(r'[,$]', '', s_str)
+        
+        # Handle scientific notation
+        try:
+            return float(s_clean)
+        except ValueError:
+            # If it's not a valid number, try to extract the first number
+            num_match = re.search(r'-?\d+(?:\.\d+)?(?:[eE][+-]?\d+)?', s_clean)
+            if num_match:
+                try:
+                    return float(num_match.group(0))
+                except ValueError:
+                    return None
+            return None
+
     def _to_bool(x):
         # Accept booleans and common string synonyms
         if isinstance(x, bool):
@@ -285,7 +388,7 @@ def make_universal_metric(trainset, input_key: str, output_fields: List[str], se
         "- weights: {field: float in [0.0, 2.0]} "
         "- field_types: {field: 'numeric'|'text'} "
         "- numeric: {field: {abs_close:int|float, abs_ok:int|float, relative_after:int|float}} "
-        "- text: {method:'jaccard'|'contains', short_tokens:int, minlen_substring:int, token_min_len:int} "
+        "- text: {method:'jaccard'|'contains', short_tokens:int, minlen_substring:int, token_min_len:int, list_method:'f1'|'jaccard'} "
         "- hallucination_penalty: true|false"
     )
     
@@ -305,7 +408,7 @@ def make_universal_metric(trainset, input_key: str, output_fields: List[str], se
         schema = None
 
     # Build a robust default
-    default_text_cfg = {"method": "jaccard", "short_tokens": 3, "minlen_substring": 10, "token_min_len": 2}
+    default_text_cfg = {"method": "jaccard", "short_tokens": 3, "minlen_substring": 10, "token_min_len": 2, "list_method": "f1"}
     default_numeric_cfg = {"default": {"abs_close": 2, "abs_ok": 6, "relative_after": 12}}
     if schema and isinstance(schema.get("numeric"), dict):
         default_numeric_cfg.update({k: v for k, v in schema["numeric"].items() if k != "default"})
@@ -435,11 +538,14 @@ def make_universal_metric(trainset, input_key: str, output_fields: List[str], se
     # Text config
     text_cfg = default_text_cfg.copy()
     try:
-        text_cfg.update({k: v for k, v in (plan_json.get("text") or {}).items() if k in {"method", "short_tokens", "minlen_substring", "token_min_len"}})
+        text_cfg.update({k: v for k, v in (plan_json.get("text") or {}).items() if k in {"method", "short_tokens", "minlen_substring", "token_min_len", "list_method"}})
     except Exception:
         pass
     if text_cfg.get("method") not in allowed_methods:
         text_cfg["method"] = "jaccard"
+    # Set default list_method to "f1" if not specified
+    if "list_method" not in text_cfg:
+        text_cfg["list_method"] = "f1"
     # Normalize ints
     for k in ("short_tokens", "minlen_substring", "token_min_len"):
         try:
@@ -477,18 +583,32 @@ def make_universal_metric(trainset, input_key: str, output_fields: List[str], se
 
     # Tokenizer for text comparisons
     tiny_stop = {"the", "a", "an", "of", "and", "to", "in", "on", "for", "is", "are", "was", "were"}
+    # Helper to determine field-specific normalization
+    def _get_norm_function(field_name):
+        if _should_keep_punct_for_field(field_name):
+            return lambda x: _norm_text(x, keep_punct=True)
+        return _norm_text  # Default to normal _norm_text with punctuation removal
+
     def _tokens(s: str):
         s = _norm(s)
         toks = [t for t in s.split() if len(t) >= max(1, text_cfg.get("token_min_len", 2)) and t not in tiny_stop]
         return toks
 
-    def _score_text(g, p):
+    def _tokens_with_field(s: str, field_name: str = None):
+        """Tokenize text with field-specific normalization."""
+        norm_func = _get_norm_function(field_name) if field_name else _norm
+        s = norm_func(s)
+        toks = [t for t in s.split() if len(t) >= max(1, text_cfg.get("token_min_len", 2)) and t not in tiny_stop]
+        return toks
+
+    def _score_text(g, p, field_name: str = None):
         # Normalize types to strings
         g = "" if g is None else str(g)
         p = "" if p is None else str(p)
 
-        g_norm = _norm(g)
-        p_norm = _norm(p)
+        norm_func = _get_norm_function(field_name) if field_name else _norm
+        g_norm = norm_func(g)
+        p_norm = norm_func(p)
 
         # Both blank
         if g_norm == "" and p_norm == "":
@@ -509,8 +629,8 @@ def make_universal_metric(trainset, input_key: str, output_fields: List[str], se
             return 1.0 if g_norm in p_norm else 0.0
 
         # Default to Jaccard over tokens
-        gt = set(_tokens(g))
-        pt = set(_tokens(p))
+        gt = set(_tokens_with_field(g, field_name))
+        pt = set(_tokens_with_field(p, field_name))
         if not gt and not pt:
             return 1.0
         if not gt or not pt:
@@ -519,7 +639,27 @@ def make_universal_metric(trainset, input_key: str, output_fields: List[str], se
         union = len(gt | pt)
         return inter / union if union else 1.0
 
-    def _score_list(g_list, p_list):
+    def _score_list_f1(g_list, p_list):
+        # Compare sets of normalized string items using F1 score
+        g_norm = { _norm(x) for x in (g_list or []) if not _is_blank_value(x) }
+        p_norm = { _norm(x) for x in (p_list or []) if not _is_blank_value(x) }
+        if not g_norm and not p_norm:
+            return 1.0
+        if not g_norm:
+            return 0.0 if (hallucination_penalty and p_norm) else 1.0
+        if not p_norm:
+            return 0.0
+        
+        intersection = len(g_norm & p_norm)
+        if intersection == 0:
+            return 0.0
+        
+        precision = intersection / len(p_norm) if p_norm else 0.0
+        recall = intersection / len(g_norm) if g_norm else 0.0
+        f1 = 2 * (precision * recall) / (precision + recall) if (precision + recall) > 0 else 0.0
+        return f1
+
+    def _score_list(g_list, p_list, method="f1"):
         # Compare sets of normalized string items
         g_norm = { _norm(x) for x in (g_list or []) if not _is_blank_value(x) }
         p_norm = { _norm(x) for x in (p_list or []) if not _is_blank_value(x) }
@@ -529,9 +669,13 @@ def make_universal_metric(trainset, input_key: str, output_fields: List[str], se
             return 0.0 if (hallucination_penalty and p_norm) else 1.0
         if not p_norm:
             return 0.0
-        inter = len(g_norm & p_norm)
-        union = len(g_norm | p_norm)
-        return inter / union if union else 1.0
+            
+        if method == "jaccard":
+            inter = len(g_norm & p_norm)
+            union = len(g_norm | p_norm)
+            return inter / union if union else 1.0
+        else:  # Default to F1
+            return _score_list_f1(g_list, p_list)
 
     def _flatten_dict(dct):
         # Join stringified leaf values
@@ -548,16 +692,36 @@ def make_universal_metric(trainset, input_key: str, output_fields: List[str], se
         except Exception:
             return str(dct)
 
+    def _infer_numeric_subtype(field_name):
+        """
+        Infer the subtype of a numeric field based on its name.
+        
+        Args:
+            field_name: The name of the field
+            
+        Returns:
+            String representing the inferred numeric subtype
+        """
+        field_lower = field_name.lower()
+        if 'percent' in field_lower or field_lower.endswith('%') or 'pct' in field_lower:
+            return "numeric_percent"
+        elif 'currency' in field_lower or 'price' in field_lower or 'cost' in field_lower or 'amount' in field_lower:
+            return "numeric_currency"
+        elif 'count' in field_lower or 'number' in field_lower or 'num' in field_lower or field_lower.endswith('_id') or field_lower == 'id':
+            return "numeric_count"
+        else:
+            return "numeric_general"
+
     def _score_num(field, g, p):
         # Booleans: treat as exact match
         gb, pb = _to_bool(g), _to_bool(p)
         if gb is not None or pb is not None:
-            if gb is None or pb is None:
+            if gb is None or pb is not None:
                 # One side booleanifiable, the other not
                 return 0.0
             return 1.0 if gb == pb else 0.0
 
-        g, p = _to_number(g), _to_number(p)
+        g, p = _parse_number(g), _parse_number(p)
         if g is None and p is None:
             return 1.0
         if g is None:
@@ -567,6 +731,14 @@ def make_universal_metric(trainset, input_key: str, output_fields: List[str], se
 
         cfg = numeric_defaults.copy()
         cfg.update(numeric_cfg.get(field, {}))
+        
+        # Adjust scoring based on field-specific requirements for percentages
+        field_subtype = _infer_numeric_subtype(field)
+        if field_subtype == "numeric_percent" and str(g).endswith('%'):
+            # If g is a percentage, we may want to handle it differently
+            # For now, we use the parsed value but future updates can handle this differently
+            pass
+        
         diff = abs(p - g)
         if diff == 0:
             return 1.0
@@ -588,13 +760,15 @@ def make_universal_metric(trainset, input_key: str, output_fields: List[str], se
         if isinstance(g_val, list) or isinstance(p_val, list):
             g_list = g_val if isinstance(g_val, list) else ([] if _is_blank_value(g_val) else [g_val])
             p_list = p_val if isinstance(p_val, list) else ([] if _is_blank_value(p_val) else [p_val])
-            return _score_list(g_list, p_list)
+            # Use F1 as default, but allow per-field configuration via text config
+            list_method = text_cfg.get("list_method", "f1")  # Default to F1
+            return _score_list(g_list, p_list, method=list_method)
 
         # If dicts, flatten and treat as text
         if isinstance(g_val, dict) or isinstance(p_val, dict):
             g_txt = _flatten_dict(g_val if isinstance(g_val, dict) else {"value": g_val})
             p_txt = _flatten_dict(p_val if isinstance(p_val, dict) else {"value": p_val})
-            return _score_text(g_txt, p_txt)
+            return _score_text(g_txt, p_txt, field)
 
         # Try boolean-as-text exactness first
         gb, pb = _to_bool(g_val), _to_bool(p_val)
@@ -604,7 +778,7 @@ def make_universal_metric(trainset, input_key: str, output_fields: List[str], se
             return 1.0 if gb == pb else 0.0
 
         # Default text scoring
-        return _score_text(g_val, p_val)
+        return _score_text(g_val, p_val, field)
 
     def metric(gold, pred, trace=None):
         total_w, acc = 0.0, 0.0
