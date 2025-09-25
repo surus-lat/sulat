@@ -15,4 +15,6 @@ ensure_cache_dir()
 from .transcribe import transcribe
 from .extract import extract, autotune
 
-__all__ = ["ensure_cache_dir", "get_cache_dir", "transcribe", "extract", "autotune"]
+extract.autotune = autotune
+
+__all__ = ["ensure_cache_dir", "get_cache_dir", "transcribe", "extract"]
