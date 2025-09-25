@@ -62,6 +62,35 @@ def _norm(s):
     return " ".join(s.strip().lower().split())
 
 
+def _get_nested_value(data: Dict[str, Any], key: str) -> Any:
+    """Access a nested value in a dictionary using dot notation."""
+    keys = key.split('.')
+    value = data
+    for k in keys:
+        if isinstance(value, dict):
+            value = value.get(k)
+        else:
+            return None
+    return value
+
+
+def _infer_schema_recursively(data: dict, parent_key: str = "") -> dict:
+    schema = {}
+    for key, value in data.items():
+        full_key = f"{parent_key}.{key}" if parent_key else key
+        if isinstance(value, dict) and value:
+            schema.update(_infer_schema_recursively(value, full_key))
+        else:
+            desc_key = key.replace("_", " ")
+            if parent_key:
+                desc_parent = parent_key.replace(".", " ").replace("_", " ")
+                description = f"The {desc_key} of the {desc_parent}."
+            else:
+                description = f"The extracted {desc_key}."
+            schema[full_key] = description
+    return schema
+
+
 def create_dynamic_signature(input_key: str, output_schema: Dict[str, str]):
     """Dynamically creates a dspy.Signature class from a schema."""
     import dspy
@@ -104,7 +133,7 @@ def load_hf_dataset_and_infer_schema(dataset_id: str, split: str, input_key: str
         raise ValueError(f"No usable rows in dataset '{dataset_id}' split '{split}' with columns '{input_key}' and '{output_key}'.")
     # Infer schema from first example's output dict keys
     first = examples[0][output_key]
-    output_schema = {k: f"The extracted {k}." for k in first.keys()}
+    output_schema = _infer_schema_recursively(first)
     print(f"HF dataset {dataset_id}[{split}]: collected {len(examples)} examples. Fields: {list(output_schema.keys())}")
     return examples, output_schema
 
@@ -124,7 +153,7 @@ def load_and_infer_schema(data_dir: str, input_key: str, output_key: str):
             examples = data if isinstance(data, list) else [data]
             for ex in examples:
                 if input_key in ex and output_key in ex and isinstance(ex[output_key], dict):
-                    output_schema = {key: f"The extracted {key}." for key in ex[output_key].keys()}
+                    output_schema = _infer_schema_recursively(ex[output_key])
                     print(f"Inferred output schema with fields: {list(output_schema.keys())}")
                     return files, output_schema
         except Exception:
@@ -142,7 +171,7 @@ def build_trainset_from_examples(examples: List[Dict], input_key: str, output_sc
     for ex in examples:
         if input_key in ex and output_key in ex and isinstance(ex[output_key], dict):
             gold_data = ex[output_key]
-            example_kwargs = {input_key: ex[input_key], **{field: gold_data.get(field) for field in output_fields}}
+            example_kwargs = {input_key: ex[input_key], **{field: _get_nested_value(gold_data, field) for field in output_fields}}
             dspy_ex = dspy.Example(**example_kwargs).with_inputs(input_key)
             trainset.append(dspy_ex)
     random.Random(seed).shuffle(trainset)
@@ -693,7 +722,7 @@ def autotune(data_source: Union[str, Path], save_optimized_name: str,
                     for ex in examples:
                         if input_key in ex and output_key in ex:
                             gold_data = ex[output_key]
-                            example_kwargs = {input_key: ex[input_key], **{field: gold_data.get(field) for field in output_schema.keys()}}
+                            example_kwargs = {input_key: ex[input_key], **{field: _get_nested_value(gold_data, field) for field in output_schema.keys()}}
                             dspy_ex = dspy.Example(**example_kwargs).with_inputs(input_key)
                             trainset.append(dspy_ex)
                 except Exception:
