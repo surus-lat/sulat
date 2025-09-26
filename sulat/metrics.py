@@ -99,6 +99,7 @@ def _tokens(s: str, tiny_stop=None, text_cfg=None):
     if text_cfg is None:
         text_cfg = {"token_min_len": 2}
     
+    from .text_utils import _norm
     s = _norm(s)
     toks = [t for t in s.split() if len(t) >= max(1, text_cfg.get("token_min_len", 2)) and t not in tiny_stop]
     return toks
@@ -110,6 +111,9 @@ def _tokens_with_field(s: str, field_name: str = None, tiny_stop=None, text_cfg=
         tiny_stop = {"the", "a", "an", "of", "and", "to", "in", "on", "for", "is", "are", "was", "were"}
     if text_cfg is None:
         text_cfg = {"token_min_len": 2}
+    
+    # Import needed functions locally to avoid closure issues
+    from .text_utils import _norm_text, _should_keep_punct_for_field, _norm
     
     # Determine normalization function based on field name
     if field_name and _should_keep_punct_for_field(field_name):
@@ -128,6 +132,9 @@ def _score_text(g, p, field_name: str = None):
     g = "" if g is None else str(g)
     p = "" if p is None else str(p)
 
+    # Import needed functions locally to avoid closure issues
+    from .text_utils import _norm_text, _should_keep_punct_for_field, _norm
+    
     # Determine normalization function based on field name
     if field_name and _should_keep_punct_for_field(field_name):
         norm_func = lambda x: _norm_text(x, keep_punct=True)
@@ -165,7 +172,6 @@ def _score_text(g, p, field_name: str = None):
     tiny_stop = {"the", "a", "an", "of", "and", "to", "in", "on", "for", "is", "are", "was", "were"}
     text_cfg = default_text_cfg
     
-    from .text_utils import _norm_text  # Import inside function to avoid circular import
     gt = set(_tokens_with_field(g, field_name, tiny_stop, text_cfg))
     pt = set(_tokens_with_field(p, field_name, tiny_stop, text_cfg))
     if not gt and not pt:
@@ -178,6 +184,10 @@ def _score_text(g, p, field_name: str = None):
 
 
 def _score_list_f1(g_list, p_list):
+    # Import functions locally to avoid closure issues
+    from .text_utils import _norm
+    from .metrics import _is_blank_value
+    
     # Compare sets of normalized string items using F1 score
     g_norm = { _norm(x) for x in (g_list or []) if not _is_blank_value(x) }
     p_norm = { _norm(x) for x in (p_list or []) if not _is_blank_value(x) }
@@ -201,6 +211,10 @@ def _score_list_f1(g_list, p_list):
 
 
 def _score_list(g_list, p_list, method="f1"):
+    # Import functions locally to avoid closure issues
+    from .text_utils import _norm
+    from .metrics import _is_blank_value, _score_list_f1
+    
     # Compare sets of normalized string items
     g_norm = { _norm(x) for x in (g_list or []) if not _is_blank_value(x) }
     p_norm = { _norm(x) for x in (p_list or []) if not _is_blank_value(x) }
@@ -259,6 +273,10 @@ def _infer_numeric_subtype(field_name):
 
 
 def _score_num(field, g, p):
+    # Import functions locally to avoid closure issues
+    from .text_utils import _to_bool, _parse_number
+    from .metrics import _infer_numeric_subtype
+    
     # Booleans: treat as exact match
     gb, pb = _to_bool(g), _to_bool(p)
     if gb is not None or pb is not None:
@@ -306,6 +324,11 @@ def _score_num(field, g, p):
 
 
 def _score_field(field, g_val, p_val, ftype):
+    # Import functions locally to avoid closure issues
+    from .scoring import _score_date, _score_email, _score_url, _score_phone, _score_id, _score_dict
+    from .text_utils import _to_bool
+    from .metrics import _is_blank_value, _score_num, _score_list, _score_text
+    
     # Check for specific field types before default logic
     field_type = ftype
     if field_type == "date":
@@ -324,7 +347,6 @@ def _score_field(field, g_val, p_val, ftype):
         return _score_num(field, g_val, p_val)
     
     # If both lists -> list scoring
-    from .metrics import _is_blank_value  # Avoiding circular import
     if isinstance(g_val, list) or isinstance(p_val, list):
         g_list = g_val if isinstance(g_val, list) else ([] if _is_blank_value(g_val) else [g_val])
         p_list = p_val if isinstance(p_val, list) else ([] if _is_blank_value(p_val) else [p_val])
