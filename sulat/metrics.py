@@ -1,4 +1,9 @@
-"""Metric utilities for the sulat package."""
+"""Metric utilities for the sulat package.
+
+Note:
+- By default, the metric plan is heuristic (no LLM call). This is intentional to avoid requiring API keys.
+- You can opt in to LLM-designed plans via make_universal_metric(..., design_with_llm=True, ...).
+"""
 
 import random
 import re
@@ -6,6 +11,8 @@ import json
 import ast
 from typing import Optional, List, Dict, Any
 import dspy
+import logging
+import os
 from .text_utils import _norm, _should_keep_punct_for_field, _to_bool, _parse_number
 from .scoring import _score_date, _score_email, _score_url, _score_phone, _score_id, _score_dict, _score_field_recursive, _detect_field_type
 
@@ -371,14 +378,29 @@ def _score_field(field, g_val, p_val, ftype):
     return _score_text(g_val, p_val, field)
 
 
-def make_universal_metric(trainset, input_key: str, output_fields: List[str], seed: int = 42, k: int = 5, weights: Optional[Dict[str, float]] = None):
+def make_universal_metric(
+    trainset,
+    input_key: str,
+    output_fields: List[str],
+    seed: int = 42,
+    k: int = 5,
+    weights: Optional[Dict[str, float]] = None,
+    design_with_llm: bool = False,
+    design_lm=None,
+    design_model: Optional[str] = None,
+):
     """
-    Build a metric by prompting the LLM to design a 'lead metric' plan based on up to 5 examples.
-    Returns a callable metric(gold, pred, trace=None) -> float.
+    Build a universal metric.
+    - Default: heuristic plan (no LLM). Clear logs indicate this.
+    - Opt-in: LLM-designed plan when design_with_llm=True. You may pass an LM via `design_lm` or a model name via `design_model`.
+      If neither is provided, tries the current dspy context LM; falls back to heuristic if none is available.
+
+    Returns: callable metric(gold, pred, trace=None) -> float.
     """
     import dspy
     import ast
     rnd = random.Random(seed)
+    logger = logging.getLogger(__name__)
 
     # Prepare prompt to design the plan.
     examples_str = _serialize_examples(trainset, input_key, output_fields, max_k=k)
@@ -413,18 +435,14 @@ def make_universal_metric(trainset, input_key: str, output_fields: List[str], se
     # Try to get LLM-designed plan using _MetricDesignSignature
     plan_json = None
     try:
-        # Create a dummy LM that returns the heuristic plan as fallback
+        # A minimal LM that returns a heuristic plan; used for heuristic mode and as fallback.
         class DummyLM(dspy.LM):
             def __init__(self):
                 super().__init__(model='dummy')
-            
             def __call__(self, prompt, **kwargs):
-                # For metric design, return the heuristic plan instead of making actual API calls
                 heuristic_plan = self._create_heuristic_plan()
                 return [{"choices": [{"message": {"content": json.dumps(heuristic_plan)}}]}]
-            
             def _create_heuristic_plan(self):
-                # Create a basic metric plan using the provided weights if available
                 try:
                     weights_dict = weights or {f: 1.0 for f in output_fields}
                     numeric_cfg = {k: v for k, v in default_numeric_cfg.items() if k != "default"}
@@ -446,52 +464,86 @@ def make_universal_metric(trainset, input_key: str, output_fields: List[str], se
                         "hallucination_penalty": True,
                     }
 
-        # Use the dummy LM for metric design to avoid needing API keys during metric creation
-        dummy_lm = DummyLM()
-        with dspy.context(lm=dummy_lm):
-            # Use dspy.Predict to get the metric plan from the LLM
+        def _design_plan_with_lm():
+            nonlocal plan_json
             metric_designer = dspy.Predict(_MetricDesignSignature)
             result = metric_designer(
                 examples=examples_str,
                 field_names=", ".join(output_fields),
                 metric_instructions=instructions
             )
-            
-            # Parse the LLM response
             plan_str = result.plan
-            parsed_plan = _safe_json_extract(plan_str)
-            
-            if parsed_plan and isinstance(parsed_plan, dict):
-                plan_json = parsed_plan
-            else:
-                # Fallback to heuristic if parsing fails
-                plan_json = dummy_lm._create_heuristic_plan()
-    except Exception:
-        # If LLM call fails completely, fall back to heuristic
-        plan_json = None
+            parsed = _safe_json_extract(plan_str)
+            if parsed and isinstance(parsed, dict):
+                plan_json = parsed
 
+        plan_json = None
+        if design_with_llm:
+            logger.info("Designing metric plan via LLM (opt-in enabled).")
+            lm_to_use = design_lm
+            if lm_to_use is None and design_model:
+                lm_to_use = dspy.LM(
+                    design_model,
+                    api_base=os.getenv("SURUS_API_BASE", "https://api.surus.dev/functions/v1"),
+                    api_key=os.getenv("SURUS_API_KEY"),
+                )
+            # Use current dspy settings LM if still None
+            if lm_to_use is None:
+                try:
+                    lm_to_use = dspy.settings.lm  # type: ignore
+                except Exception:
+                    lm_to_use = None
+            if lm_to_use is not None:
+                try:
+                    with dspy.context(lm=lm_to_use):
+                        _design_plan_with_lm()
+                except Exception:
+                    logger.exception("LLM metric-plan design failed; falling back to heuristic.")
+                    plan_json = None
+            else:
+                logger.warning("No LM available for metric-plan design; falling back to heuristic plan.")
+        else:
+            logger.info("Using heuristic metric plan (no LLM).")
+
+        # If not using LLM or if LLM attempt produced no plan, use Dummy heuristic.
+        if not plan_json:
+            dummy_lm = DummyLM()
+            with dspy.context(lm=dummy_lm):
+                _design_plan_with_lm()
+            if not plan_json:
+                # Final safety fallback to the dummy heuristic builder
+                plan_json = DummyLM()._create_heuristic_plan()
+    except Exception:
+        # If anything fails, fall back to heuristic
+        logger = logging.getLogger(__name__)
+        logger.exception("Metric-plan creation encountered an error; using heuristic plan.")
+        plan_json = None
     # If no plan from LLM or parsing failed, use heuristic approach
     if not plan_json:
-        try:
-            weights_dict = weights or {f: 1.0 for f in output_fields}
-            numeric_cfg = {k: v for k, v in default_numeric_cfg.items() if k != "default"}
-            inferred_numeric_fields = set(numeric_cfg.keys())
-            field_types = {f: ("numeric" if f in inferred_numeric_fields else "text") for f in output_fields}
-            plan_json = {
-                "weights": {f: float(weights_dict.get(f, 1.0)) for f in output_fields},
-                "field_types": field_types,
-                "numeric": numeric_cfg,
-                "text": default_text_cfg.copy(),
-                "hallucination_penalty": True,
-            }
-        except Exception:
-            plan_json = {
-                "weights": {f: 1.0 for f in output_fields},
-                "field_types": {f: "text" for f in output_fields},
-                "numeric": {},
-                "text": default_text_cfg.copy(),
-                "hallucination_penalty": True,
-            }
+         try:
+             weights_dict = weights or {f: 1.0 for f in output_fields}
+             numeric_cfg = {k: v for k, v in default_numeric_cfg.items() if k != "default"}
+             inferred_numeric_fields = set(numeric_cfg.keys())
+             field_types = {f: ("numeric" if f in inferred_numeric_fields else "text") for f in output_fields}
+             plan_json = {
+                 "weights": {f: float(weights_dict.get(f, 1.0)) for f in output_fields},
+                 "field_types": field_types,
+                 "numeric": numeric_cfg,
+                 "text": default_text_cfg.copy(),
+                 "hallucination_penalty": True,
+             }
+         except Exception:
+             plan_json = {
+                 "weights": {f: 1.0 for f in output_fields},
+                 "field_types": {f: "text" for f in output_fields},
+                 "numeric": {},
+                 "text": default_text_cfg.copy(),
+                 "hallucination_penalty": True,
+             }
+    else:
+        # Clarify in logs whether plan was LLM-designed or heuristic
+        logger = logging.getLogger(__name__)
+        logger.info("Metric plan ready (%s).", "LLM-designed" if design_with_llm else "heuristic")
 
     # Validate and complete the plan
     allowed_methods = {"jaccard", "contains"}
