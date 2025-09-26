@@ -100,7 +100,7 @@ def _score_email(g, p):
     g_domain = g_domain.lower()
     p_domain = p_domain.lower()
     
-    # Local part is case-sensitive by RFC standard, but many providers handle it case-insensitively
+    # Local part is case-sensitive by RFC standard, but many providers handle it case-insitively
     # For our purposes, we'll use case-insensitive comparison for both parts to be lenient
     return 1.0 if (g_local.lower() == p_local.lower() and g_domain == p_domain) else 0.0
 
@@ -152,7 +152,8 @@ def _score_url(g, p):
     
     # Normalize path - remove trailing slash if not root
     g_path = g_parsed.path.rstrip('/') if g_parsed.path != '/' else g_parsed.path
-    p_path = p_parsed.path.rstrip('/') if p_parsed.path != '/' else g_parsed.path
+    # Fix: when p_parsed.path == '/', use p_parsed.path (not g_parsed.path)
+    p_path = p_parsed.path.rstrip('/') if p_parsed.path != '/' else p_parsed.path
     
     # Reconstruct URL with normalized components
     g_normalized = urlunparse((g_scheme, g_netloc, g_path, g_parsed.params, g_parsed.query, g_parsed.fragment))
@@ -343,21 +344,18 @@ def _score_dict(g, p, field_name=None):
         
         # Determine the type of value to decide how to score it
         if p_val is None and g_val is not None:
-            # Gold has a value, prediction doesn't (hallucination penalty might apply)
             score = 0.0
         elif g_val is None and p_val is not None:
-            # Prediction has a value, gold doesn't
-            score = 0.0  # This could be affected by hallucination penalty
+            score = 0.0
         elif g_val is None and p_val is None:
             score = 1.0
         else:
-            # Both have values, score them based on their types
-            # We'll use a recursive approach with the main scoring logic
+            # Delegate to unified scoring (via _score_field_recursive -> metrics._score_field)
             score = _score_field_recursive(g_val, p_val, field_name=f"{field_name}.{key}" if field_name else key)
         
         scores.append(score)
         valid_comparisons += 1
-    
+
     # Calculate macro-average score across keys present in gold
     if valid_comparisons > 0:
         avg_score = sum(scores) / len(scores) if len(scores) > 0 else 1.0
@@ -376,57 +374,12 @@ def _score_dict(g, p, field_name=None):
 def _score_field_recursive(g_val, p_val, field_name=""):
     """
     Recursively score fields accounting for nested structures.
-    This is a helper for scoring dict values with the appropriate logic.
+    Delegates to metrics._score_field for unified behavior across all types.
     """
-    # Detect field type based on field name
-    field_type = _detect_field_type(field_name)
-    
-    # Apply type-specific scoring
-    if field_type == "date":
-        return _score_date(g_val, p_val)
-    elif field_type == "email":
-        return _score_email(g_val, p_val)
-    elif field_type == "url":
-        return _score_url(g_val, p_val)
-    elif field_type == "phone":
-        return _score_phone(g_val, p_val)
-    elif field_type == "id":
-        return _score_id(g_val, p_val)
-    elif field_type == "dict":
-        return _score_dict(g_val, p_val, field_name)
-    elif isinstance(g_val, dict) or isinstance(p_val, dict):
-        return _score_dict(g_val, p_val, field_name)
-    elif field_type == "numeric":
-        # For numeric comparison, we need to use the number parsing from the original code
-        gb, pb = _to_bool(g_val), _to_bool(p_val)
-        if gb is not None or pb is not None:
-            if gb is None or pb is not None:
-                return 0.0
-            return 1.0 if gb == pb else 0.0
-
-        g_num = _parse_number(g_val)
-        p_num = _parse_number(p_val)
-        
-        if g_num is None and p_num is None:
-            return 1.0
-        if g_num is None or p_num is None:
-            return 0.0
-
-        diff = abs(p_num - g_num)
-        if diff == 0:
-            return 1.0
-        if diff <= 2:  # abs_close
-            return 0.8
-        if diff <= 6:  # abs_ok
-            return 0.5
-        if abs(g_num) > 12:  # relative_after
-            return max(0.0, 1.0 - (diff / abs(g_num)))
-        return 0.0
-    else:
-        # Default to text scoring
-        return _score_text(str(g_val) if g_val is not None else "", 
-                          str(p_val) if p_val is not None else "", 
-                          field_name)
+    # Use centralized scoring from metrics to ensure consistent behavior
+    from . import metrics as _metrics
+    ftype = _detect_field_type(field_name)
+    return _metrics._score_field(field_name, g_val, p_val, ftype)
 
 
 def _detect_field_type(field_name):
@@ -582,34 +535,6 @@ def _parse_date(s):
 
 
 def _score_text(g, p, field_name: str = None):
-    """Score text similarity."""
-    # This is a simplified version of the nested function in make_universal_metric
-    # It's needed here since _score_field_recursive calls _score_text
-    from .text_utils import _norm_text, _should_keep_punct_for_field
-    
-    # Normalize types to strings
-    g = "" if g is None else str(g)
-    p = "" if p is None else str(p)
-
-    # Determine normalization function based on field name
-    if field_name and _should_keep_punct_for_field(field_name):
-        norm_func = lambda x: _norm_text(x, keep_punct=True)
-    else:
-        from .text_utils import _norm
-        norm_func = _norm
-
-    g_norm = norm_func(g)
-    p_norm = norm_func(p)
-
-    # Both blank
-    if g_norm == "" and p_norm == "":
-        return 1.0
-    # Gold blank
-    if g_norm == "":
-        return 0.0
-    # Pred blank
-    if p_norm == "":
-        return 0.0
-
-    # Default to simple equality for this basic implementation
-    return 1.0 if g_norm == p_norm else 0.0
+    """Score text similarity by delegating to metrics._score_text for consistent behavior."""
+    from . import metrics as _metrics
+    return _metrics._score_text(g, p, field_name)

@@ -83,10 +83,13 @@ def autotune(data_source: Union[str, Path], save_optimized_name: str,
     """
     import dspy
     
-    # Configure DSPy with the specified model
-    lm = dspy.LM(model)
-    #dspy.configure(lm=lm)
-    dspy.configure(lm=dspy.LM(os.getenv("MODEL_NAME", "litellm_proxy/google/gemma-3n-E4B-it"), api_base=os.getenv("SURUS_API_BASE", "https://api.surus.dev/functions/v1"), api_key=os.getenv("SURUS_API_KEY")))
+    # Configure DSPy with the specified or environment-provided model (single configuration)
+    selected_model = model or os.getenv("MODEL_NAME", "litellm_proxy/google/gemma-3n-E4B-it")
+    dspy.configure(lm=dspy.LM(
+        selected_model,
+        api_base=os.getenv("SURUS_API_BASE", "https://api.surus.dev/functions/v1"),
+        api_key=os.getenv("SURUS_API_KEY")
+    ))
     # Set up logging
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
     logger = logging.getLogger(__name__)
@@ -147,14 +150,24 @@ def autotune(data_source: Union[str, Path], save_optimized_name: str,
         if max_examples is not None and len(trainset) > max_examples:
             trainset = trainset[:max_examples]
 
+    # Split into train/val to avoid evaluation leakage
+    total_n = len(trainset)
+    if total_n >= 2:
+        # At least 20% or 16 examples (whichever larger), capped at half for stability
+        val_size = max(1, min(max(int(0.2 * total_n), 16), total_n // 2))
+    else:
+        val_size = 0
+    valset = trainset[:val_size] if val_size > 0 else []
+    trainset_core = trainset[val_size:] if val_size > 0 else trainset
+
     # Create universal metric for evaluation
     logger.info("Creating universal metric...")
     
-    # Get inferred schema and weights
-    schema = infer_metric_schema(trainset, input_key)
+    # Get inferred schema and weights from train split only
+    schema = infer_metric_schema(trainset_core, input_key)
     weights = schema.get("weights", None) if schema else None
     
-    selected_metric = make_universal_metric(trainset, input_key, list(output_schema.keys()), seed=seed, weights=weights)
+    selected_metric = make_universal_metric(trainset_core, input_key, list(output_schema.keys()), seed=seed, weights=weights)
     
     def make_gepa_wrapper(metric_fn, label="universal"):
         def gepa_metric(gold, pred, trace=None, pred_name=None, pred_trace=None):
@@ -228,8 +241,8 @@ def autotune(data_source: Union[str, Path], save_optimized_name: str,
                                           list(output_schema.keys()), use_feedback=algorithm == 'gepa')
 
             # Build metric trainset using a subset of the original trainset
-            sample_size = min(32, len(trainset))
-            metric_trainset_examples = trainset[:sample_size]
+            sample_size = min(32, len(trainset_core))
+            metric_trainset_examples = trainset_core[:sample_size]
             
             # Create metric optimization examples
             metric_trainset = []
@@ -271,8 +284,8 @@ def autotune(data_source: Union[str, Path], save_optimized_name: str,
                     )
                     # Use the optimized metric
                     if hasattr(optimized_metric_program, 'metric_fn'):
-                        selected_metric = optimized_metric_program.metric_fn
-                        selected_gepa_metric = optimized_metric_program.metric_fn
+                        selected_metric = getattr(optimized_metric_program, 'forward', optimized_metric_program)
+                        selected_gepa_metric = selected_metric
                     else:
                         selected_metric = optimized_metric_program.forward if hasattr(optimized_metric_program, 'forward') else optimized_metric_program
                     logger.info("Metric optimization complete.")
@@ -304,7 +317,7 @@ def autotune(data_source: Union[str, Path], save_optimized_name: str,
         if should_optimize_extractor:
             logger.info(f"Extractor optimization enabled with {algorithm.upper()} (schedule={optimize_extractor_schedule}).")
             
-            if trainset:
+            if trainset_core:
                 if algorithm == 'gepa':
                     try:
                         from dspy import GEPA
@@ -314,14 +327,15 @@ def autotune(data_source: Union[str, Path], save_optimized_name: str,
                             auto='heavy'
                         )
                         extractor = dspy.Predict(DynamicSignature)
-                        valset_size = min(len(trainset), 16)
+                        effective_valset = valset if valset else trainset_core[:min(len(trainset_core), 16)]
                         optimized_extractor = optimizer.compile(
                             extractor, 
-                            trainset=trainset, 
-                            valset=trainset[:valset_size]
+                            trainset=trainset_core, 
+                            valset=effective_valset
                         )
                         iteration_report["extractor_optimization"]["status"] = "completed"
-                        iteration_report["extractor_optimization"]["trainset_size"] = len(trainset)
+                        iteration_report["extractor_optimization"]["trainset_size"] = len(trainset_core)
+                        iteration_report["extractor_optimization"]["valset_size"] = len(effective_valset)
                     except ImportError:
                         logger.warning("GEPA not available, falling back to MIPROv2")
                         optimizer = _safe_mipro(
@@ -333,10 +347,10 @@ def autotune(data_source: Union[str, Path], save_optimized_name: str,
                         extractor = dspy.Predict(DynamicSignature)
                         optimized_extractor = optimizer.compile(
                             extractor,
-                            trainset=trainset
+                            trainset=trainset_core
                         )
                         iteration_report["extractor_optimization"]["status"] = "completed (fallback MIPROv2)"
-                        iteration_report["extractor_optimization"]["trainset_size"] = len(trainset)
+                        iteration_report["extractor_optimization"]["trainset_size"] = len(trainset_core)
                 else:  # MIPROv2
                     optimizer = _safe_mipro(
                         metric=selected_metric,
@@ -347,17 +361,17 @@ def autotune(data_source: Union[str, Path], save_optimized_name: str,
                     extractor = dspy.Predict(DynamicSignature)
                     optimized_extractor = optimizer.compile(
                         extractor,
-                        trainset=trainset
+                        trainset=trainset_core
                     )
                     iteration_report["extractor_optimization"]["status"] = "completed"
-                    iteration_report["extractor_optimization"]["trainset_size"] = len(trainset)
+                    iteration_report["extractor_optimization"]["trainset_size"] = len(trainset_core)
                 
                 logger.info(f"Extractor optimization complete for iteration {iteration + 1}.")
             else:
-                logger.warning("Skipping extractor optimization: could not build trainset.")
+                logger.warning("Skipping extractor optimization: train split is empty.")
                 iteration_report["extractor_optimization"] = {
                     "status": "skipped",
-                    "reason": "could not build trainset"
+                    "reason": "empty train split"
                 }
         else:
             # If we're not optimizing this iteration but have an extractor (from previous iteration or initial)
@@ -383,9 +397,9 @@ def autotune(data_source: Union[str, Path], save_optimized_name: str,
             analysis = analyze_optimization_report(iteration_report, current_metric_config)
             logger.info(f"Optimization analysis for next iteration: {analysis}")
 
-    # Perform final evaluation
-    logger.info("Running final evaluation...")
-    all_examples = trainset  # Using the training examples for final evaluation
+    # Perform final evaluation on validation split (avoid train leakage)
+    logger.info("Running final evaluation on validation split...")
+    all_examples = valset if valset else trainset_core
     report_records, final_scores = [], []
     for ex in all_examples:
         try:
@@ -414,7 +428,9 @@ def autotune(data_source: Union[str, Path], save_optimized_name: str,
         "average_score": avg_score, 
         "errors": len([r for r in report_records if "error" in r]), 
         "iterations": metric_iterations,
-        "optimization_reports": optimization_reports
+        "optimization_reports": optimization_reports,
+        "train_examples": len(trainset_core),
+        "val_examples": len(valset)
     }
 
     # Write report if path provided
@@ -430,7 +446,7 @@ def autotune(data_source: Union[str, Path], save_optimized_name: str,
     results_dict = {
         "status": "success",
         "optimized_name": save_optimized_name,
-        "training_examples": len(trainset),
+        "training_examples": len(trainset_core),
         "output_fields": list(output_schema.keys()),
         "data_source": data_source,
         "input_key": input_key,

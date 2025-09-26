@@ -280,8 +280,8 @@ def _score_num(field, g, p):
     # Booleans: treat as exact match
     gb, pb = _to_bool(g), _to_bool(p)
     if gb is not None or pb is not None:
-        if gb is None or pb is not None:
-            # One side booleanifiable, the other not
+        # Fix: return 0.0 if either is None, else compare equality
+        if gb is None or pb is None:
             return 0.0
         return 1.0 if gb == pb else 0.0
 
@@ -362,7 +362,8 @@ def _score_field(field, g_val, p_val, ftype):
     # Try boolean-as-text exactness first
     gb, pb = _to_bool(g_val), _to_bool(p_val)
     if gb is not None or pb is not None:
-        if gb is None or pb is not None:
+        # Fix: return 0.0 if either is None, else compare equality
+        if gb is None or pb is None:
             return 0.0
         return 1.0 if gb == pb else 0.0
 
