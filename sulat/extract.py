@@ -57,7 +57,7 @@ def autotune(data_source: Union[str, Path], save_optimized_name: str,
              metric_iterations: int = 1,
              optimize_extractor_schedule: str = "first",
              report_path: Optional[str] = None,
-             model: str = "google/gemma-3n-E4B-it") -> Dict[str, Any]:
+             model: str = "litellm_proxy/google/gemma-3n-E4B-it") -> Dict[str, Any]:
     """
     Auto-tune the extraction process using DSPy optimization techniques.
     
@@ -76,7 +76,7 @@ def autotune(data_source: Union[str, Path], save_optimized_name: str,
         metric_iterations: Number of iterations to improve the metric
         optimize_extractor_schedule: When to optimize the extractor ('first', 'last', 'each', 'never')
         report_path: Path to write final JSON report
-        model: The model name to use for DSPy optimization (default: 'google/gemma-3n-E4B-it')
+        model: The model name to use for DSPy optimization (default: 'litellm_proxy/google/gemma-3n-E4B-it')
     
     Returns:
         Dictionary containing optimization results
@@ -466,7 +466,7 @@ def autotune(data_source: Union[str, Path], save_optimized_name: str,
 def extract(
     text: str,
     json_schema: dict = None,
-    model: Optional[str] = "google/gemma-3n-E4B-it",
+    model: Optional[str] = "litellm_proxy/google/gemma-3n-E4B-it",
     temperature: float = 0.0,
     timeout: float = 30.0,
     load_optimized_name: Optional[str] = None,
@@ -583,7 +583,7 @@ def extract(
     ]
 
     data = {
-        "model": model if model else "surus-mixtral-8x7b-inst-v0.1",
+        "model": model,
         "messages": messages,
         "temperature": temperature,
         "response_format": {"type": "json_object"},
