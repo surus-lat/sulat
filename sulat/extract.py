@@ -57,7 +57,9 @@ def autotune(data_source: Union[str, Path], save_optimized_name: str,
              metric_iterations: int = 1,
              optimize_extractor_schedule: str = "first",
              report_path: Optional[str] = None,
-             model: str = "litellm_proxy/google/gemma-3n-E4B-it") -> Dict[str, Any]:
+             model: str = "litellm_proxy/google/gemma-3n-E4B-it",
+             design_with_llm: bool = False,
+             design_model: Optional[str] = None) -> Dict[str, Any]:
     """
     Auto-tune the extraction process using DSPy optimization techniques.
     
@@ -77,6 +79,8 @@ def autotune(data_source: Union[str, Path], save_optimized_name: str,
         optimize_extractor_schedule: When to optimize the extractor ('first', 'last', 'each', 'never')
         report_path: Path to write final JSON report
         model: The model name to use for DSPy optimization (default: 'litellm_proxy/google/gemma-3n-E4B-it')
+        design_with_llm: Whether to use LLM for designing the metric plan (default: False, uses heuristic)
+        design_model: Optional model name for metric-plan design when LLM mode is enabled.
     
     Returns:
         Dictionary containing optimization results
@@ -167,7 +171,15 @@ def autotune(data_source: Union[str, Path], save_optimized_name: str,
     schema = infer_metric_schema(trainset_core, input_key)
     weights = schema.get("weights", None) if schema else None
     
-    selected_metric = make_universal_metric(trainset_core, input_key, list(output_schema.keys()), seed=seed, weights=weights)
+    selected_metric = make_universal_metric(
+        trainset_core,
+        input_key,
+        list(output_schema.keys()),
+        seed=seed,
+        weights=weights,
+        design_with_llm=design_with_llm,
+        design_model=design_model,
+    )
     
     def make_gepa_wrapper(metric_fn, label="universal"):
         def gepa_metric(gold, pred, trace=None, pred_name=None, pred_trace=None):

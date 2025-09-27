@@ -387,7 +387,7 @@ def make_universal_metric(
     weights: Optional[Dict[str, float]] = None,
     design_with_llm: bool = False,
     design_lm=None,
-    design_model: Optional[str] = None,
+    design_model: Optional[str] = "litellm_proxy/google/gemma-3n-E4B-it",
 ):
     """
     Build a universal metric.
@@ -426,6 +426,7 @@ def make_universal_metric(
     default_text_cfg = {"method": "jaccard", "short_tokens": 3, "minlen_substring": 10, "token_min_len": 2, "list_method": "f1"}
     default_numeric_cfg = {"default": {"abs_close": 2, "abs_ok": 6, "relative_after": 12}}
     try:
+        from data_utils import infer_metric_schema
         schema = infer_metric_schema(trainset, input_key)
         if schema and isinstance(schema.get("numeric"), dict):
             default_numeric_cfg.update({k: v for k, v in schema["numeric"].items() if k != "default"})
