@@ -1,18 +1,25 @@
 <div align="center">
   <h1>sulat</h1>
-  <img src="public/icon.png" alt="icon" width="80" height="80">
-  <p><em>an Opinionated Way of doing AI - Task-oriented AI nodes </em></p>
+  <img src="public/icon.png" alt="sulat icon" width="80" height="80">
+  <p><em>Task-oriented AI nodes for transcription and structured extraction</em></p>
 </div>
 
-## Installation
+## Overview
 
-### From PyPI (Recommended)
+`sulat` wraps SURUS AI endpoints to provide:
+- **Speech transcription** with automatic mono conversion fallback.
+- **Structured extraction** guided by JSON schemas or optimized DSPy programs.
+- **Metric and extractor autotuning** for production-ready pipelines.
+
+Python ≥ 3.9 is recommended.
+
+## Installation
 
 ```bash
 pip install sulat
 ```
 
-### From Source
+From source:
 
 ```bash
 uv venv
@@ -20,33 +27,27 @@ source .venv/bin/activate
 uv pip install -e .
 ```
 
-## Usage
+## Quickstart
 
 ```python
 import sulat
 
-# Basic transcription (uses Whisper model)
+# Whisper-style transcription
 text = sulat.transcribe("audio.wav")
 
-# High performance transcription (uses Canary model)
-text = sulat.transcribe("audio.wav", high_performance=True, source_lang="es")
-
-# Control source and target languages
-text = sulat.transcribe("audio.wav", source_lang="es", target_lang="en")
-
-# Additional options
-text = sulat.transcribe(
+# Canary high-performance transcription
+text_hp = sulat.transcribe(
     "audio.wav",
-    high_performance=False,  # Use Whisper (default) or Canary model
-    source_lang="auto",      # Auto-detect or specify language
-    target_lang="en",        # Target language for translation
-    response_format="json",  # Response format
-    temperature=0.0          # Temperature for generation
+    high_performance=True,
+    source_lang="es",
+    target_lang="en"
 )
+```
 
-# Extract structured information from text
-text = "The quick brown fox jumps over the lazy dog."
-json_schema = {
+### Structured extraction
+
+```python
+schema = {
     "type": "object",
     "properties": {
         "animal": {"type": "string"},
@@ -54,32 +55,59 @@ json_schema = {
     }
 }
 
-result = sulat.extract(text, json_schema)
-print(result)  # Outputs a dictionary with extracted information
+result = sulat.extract(
+    text="The quick brown fox jumps over the lazy dog.",
+    json_schema=schema,
+)
 ```
 
-### Environment Setup
+Use a cached DSPy program:
 
-Create a `.env` file in your project root:
-
-```bash
-# .env
-SURUS_API_KEY=your_api_key_here
+```python
+optimized = sulat.extract(
+    text="Invoice #123 is due on 2024-07-01.",
+    load_optimized_name="invoice_parser_v1"
+)
 ```
 
-Or set the environment variable directly:
+## Environment
+
+Set your SURUS API key:
+
 ```bash
 export SURUS_API_KEY="your_api_key"
+```
+
+`sulat` caches intermediate files under `SURUS_CACHE` (defaults to `~/.cache/surus`). Override with:
+
+```bash
+export SURUS_CACHE="/custom/cache/dir"
+```
+
+## Autotuning
+
+```python
+from sulat import extract
+
+result = extract.autotune(
+    data_source="datasets/invoices",
+    save_optimized_name="invoice_parser_v1",
+    input_key="prompt",
+    output_key="label",
+    optimize_metric=True,
+    metric_iterations=2
+)
 ```
 
 ## Development
 
 ```bash
-# Setup environment
 uv venv
 source .venv/bin/activate
 uv pip install -e ".[dev]"
-
-# Run tests
-pytest tests/
+pytest
 ```
+
+Troubleshooting tips:
+- Install `pydub` (and `ffmpeg`) for local stereo-to-mono conversion.
+- Ensure `SURUS_API_BASE` if you use a custom proxy.
