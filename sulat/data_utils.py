@@ -39,17 +39,32 @@ def _infer_schema_recursively(data: dict, parent_key: str = "") -> dict:
 
 
 def create_dynamic_signature(input_key: str, output_schema: Dict[str, str]):
-    """Dynamically creates a dspy.Signature class from a schema."""
+    """Dynamically creates a dspy.Signature class from a schema, sanitizing field names."""
     import dspy
+    import re
+
+    path_to_attr = {}
     fields = {input_key: dspy.InputField(desc="Input text for extraction.")}
     docstring = "Extract the following fields from the input text:\n"
     for field_name, description in output_schema.items():
-        fields[field_name] = dspy.OutputField(desc=description)
-        docstring += f"- {field_name}: {description}\n"
+        sanitized_name = re.sub(r'[^a-zA-Z0-9_]', '_', field_name)
+        if sanitized_name and sanitized_name[0].isdigit():
+            sanitized_name = f"_{sanitized_name}"
+        
+        # handle collisions
+        original_sanitized_name = sanitized_name
+        i = 1
+        while sanitized_name in fields:
+            sanitized_name = f"{original_sanitized_name}_{i}"
+            i += 1
+
+        path_to_attr[field_name] = sanitized_name
+        fields[sanitized_name] = dspy.OutputField(desc=description)
+        docstring += f"- {sanitized_name} (from {field_name}): {description}\n"
 
     DynamicSignature = type("DynamicSignature", (dspy.Signature,), fields)
     DynamicSignature.__doc__ = docstring
-    return DynamicSignature
+    return DynamicSignature, path_to_attr
 
 
 def load_hf_dataset_and_infer_schema(dataset_id: str, split: str, input_key: str, output_key: str, max_rows: Optional[int] = None):
@@ -110,15 +125,16 @@ def load_and_infer_schema(data_dir: str, input_key: str, output_key: str):
     raise ValueError(f"Could not infer schema. No valid examples found in {data_dir} with keys '{input_key}' and '{output_key}'.")
 
 
-def build_trainset_from_examples(examples: List[Dict], input_key: str, output_schema: Dict[str, str], output_key: str, max_examples: Optional[int], seed: int):
+def build_trainset_from_examples(examples: List[Dict], input_key: str, path_to_attr: Dict[str, str], output_key: str, max_examples: Optional[int], seed: int):
     """Build trainset from in-memory examples (list of dicts)."""
     import dspy
-    output_fields = list(output_schema.keys())
     trainset = []
     for ex in examples:
         if input_key in ex and output_key in ex and isinstance(ex[output_key], dict):
             gold_data = ex[output_key]
-            example_kwargs = {input_key: ex[input_key], **{field: _get_nested_value(gold_data, field) for field in output_fields}}
+            example_kwargs = {input_key: ex[input_key]}
+            for field, attr in path_to_attr.items():
+                example_kwargs[attr] = _get_nested_value(gold_data, field)
             dspy_ex = dspy.Example(**example_kwargs).with_inputs(input_key)
             trainset.append(dspy_ex)
     random.Random(seed).shuffle(trainset)

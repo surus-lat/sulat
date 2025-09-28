@@ -87,6 +87,10 @@ def autotune(data_source: Union[str, Path], save_optimized_name: str,
     """
     import dspy
     
+    # DSPy optimization requires an LM, which in turn requires an API key.
+    if not os.getenv("SURUS_API_KEY"):
+        raise MissingAPIKeyError("SURUS_API_KEY not set. Optimization with DSPy requires a language model and an API key.")
+
     # Configure DSPy with the specified or environment-provided model (single configuration)
     selected_model = model or os.getenv("MODEL_NAME", "litellm_proxy/google/gemma-3n-E4B-it")
     dspy.configure(lm=dspy.LM(
@@ -125,12 +129,12 @@ def autotune(data_source: Union[str, Path], save_optimized_name: str,
         raw_examples = None
 
     # Create dynamic signature based on the inferred schema
-    DynamicSignature = create_dynamic_signature(input_key, output_schema)
+    DynamicSignature, path_to_attr = create_dynamic_signature(input_key, output_schema)
     
     # Build trainset based on the data source
     if raw_examples is not None:
         trainset = build_trainset_from_examples(
-            raw_examples, input_key, output_schema, output_key, max_examples, seed
+            raw_examples, input_key, path_to_attr, output_key, max_examples, seed
         )
     else:
         # Build trainset from files
@@ -144,7 +148,9 @@ def autotune(data_source: Union[str, Path], save_optimized_name: str,
                     for ex in examples:
                         if input_key in ex and output_key in ex:
                             gold_data = ex[output_key]
-                            example_kwargs = {input_key: ex[input_key], **{field: _get_nested_value(gold_data, field) for field in output_schema.keys()}}
+                            example_kwargs = {input_key: ex[input_key]}
+                            for field, attr in path_to_attr.items():
+                                example_kwargs[attr] = _get_nested_value(gold_data, field)
                             dspy_ex = dspy.Example(**example_kwargs).with_inputs(input_key)
                             trainset.append(dspy_ex)
                 except Exception:
@@ -174,7 +180,7 @@ def autotune(data_source: Union[str, Path], save_optimized_name: str,
     selected_metric = make_universal_metric(
         trainset_core,
         input_key,
-        list(output_schema.keys()),
+        list(path_to_attr.values()),
         seed=seed,
         weights=weights,
         design_with_llm=design_with_llm,
@@ -250,7 +256,7 @@ def autotune(data_source: Union[str, Path], save_optimized_name: str,
         if optimize_metric:
             logger.info("Metric optimization enabled.")
             metric_program = MetricProgram(selected_gepa_metric if algorithm == 'gepa' else selected_metric, 
-                                          list(output_schema.keys()), use_feedback=algorithm == 'gepa')
+                                          list(path_to_attr.values()), use_feedback=algorithm == 'gepa')
 
             # Build metric trainset using a subset of the original trainset
             sample_size = min(32, len(trainset_core))
@@ -421,8 +427,8 @@ def autotune(data_source: Union[str, Path], save_optimized_name: str,
             final_scores.append(score_value)
             report_records.append({
                 "input": getattr(ex, input_key), 
-                "prediction": {field: getattr(pred, field, None) for field in output_schema.keys()}, 
-                "gold": {field: getattr(ex, field, None) for field in output_schema.keys()}, 
+                "prediction": {path: getattr(pred, attr, None) for path, attr in path_to_attr.items()}, 
+                "gold": {path: getattr(ex, attr, None) for path, attr in path_to_attr.items()}, 
                 "score": score_value
             })
         except Exception:
@@ -460,6 +466,7 @@ def autotune(data_source: Union[str, Path], save_optimized_name: str,
         "optimized_name": save_optimized_name,
         "training_examples": len(trainset_core),
         "output_fields": list(output_schema.keys()),
+        "path_to_attr": path_to_attr,
         "data_source": data_source,
         "input_key": input_key,
         "output_key": output_key,
@@ -508,11 +515,14 @@ def extract(
         # Load the metadata to get information about the program
         metadata_path = program_dir / "metadata.json"
         input_key = "input_text"  # default
+        path_to_attr = None
         if metadata_path.exists():
             with open(metadata_path, 'r', encoding='utf-8') as f:
                 metadata = json.load(f)
+            results = metadata.get('results', {})
             # Get the input key from the saved results if available
-            input_key = metadata.get('results', {}).get('input_key', 'input_text')
+            input_key = results.get('input_key', 'input_text')
+            path_to_attr = results.get('path_to_attr')
         
         # Try to load the full DSPy program using dspy.load()
         optimized_program = None
@@ -551,20 +561,37 @@ def extract(
                     raise AttributeError("Loaded program doesn't have callable interface")
                 
                 # Extract the output fields from the result (which should be a DSPy Prediction object)
+                raw_output_dict = {}
                 if hasattr(result, '_store'):
                     # DSPy prediction with _store attribute
-                    output_dict = {k: v for k, v in result._store.items() if not k.startswith('_') and k != input_key}
+                    raw_output_dict = {k: v for k, v in result._store.items() if not k.startswith('_') and k != input_key}
                 elif hasattr(result, 'items') or hasattr(result, '__getitem__'):
                     # If result is dict-like
-                    output_dict = {k: v for k, v in result.items() if not k.startswith('_') and k != input_key}
+                    raw_output_dict = {k: v for k, v in result.items() if not k.startswith('_') and k != input_key}
                 else:
                     # Try to extract attributes from the result object
-                    output_dict = {}
                     for attr_name in dir(result):
                         if not attr_name.startswith('_') and attr_name != input_key and not callable(getattr(result, attr_name)):
-                            output_dict[attr_name] = getattr(result, attr_name)
+                            raw_output_dict[attr_name] = getattr(result, attr_name)
+
+                if 'path_to_attr' in locals() and path_to_attr:
+                    output_dict = {}
+                    attr_to_path = {v: k for k, v in path_to_attr.items()}
+                    for attr, value in raw_output_dict.items():
+                        original_path = attr_to_path.get(attr)
+                        if original_path:
+                            keys = original_path.split('.')
+                            d = output_dict
+                            for i, key in enumerate(keys):
+                                if i == len(keys) - 1:
+                                    d[key] = value
+                                else:
+                                    d = d.setdefault(key, {})
+                        else:
+                            output_dict[attr] = value # Keep fields not in map
+                    return output_dict
                 
-                return output_dict
+                return raw_output_dict
             except Exception as e:
                 print(f"Error running optimized program: {e}")
                 # Fallback to original API approach
