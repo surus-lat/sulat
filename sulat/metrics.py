@@ -156,7 +156,7 @@ def _score_text(g, p, field_name: str = None):
         return 1.0
     # Gold blank
     if g_norm == "":
-        # This would need hallucination_penalty to be passed in, defaulting to False here
+        # This would need hallucination_penalty to be passed in, defaulting to True here
         hallucination_penalty = True  # Defaulting to True as per original
         return 0.0 if (hallucination_penalty and p_norm != "") else 1.0
     # Pred blank
@@ -440,9 +440,13 @@ def make_universal_metric(
         class DummyLM(dspy.LM):
             def __init__(self):
                 super().__init__(model='dummy')
-            def __call__(self, prompt, **kwargs):
+            def __call__(self, prompt=None, **kwargs):
+                # Accept both completion- and chat-style arguments
+                _ = prompt or kwargs.get("messages")
                 heuristic_plan = self._create_heuristic_plan()
-                return [{"choices": [{"message": {"content": json.dumps(heuristic_plan)}}]}]
+                # JSONAdapter expects a JSON with the output fields; here: {"plan": "..."}
+                response_text = json.dumps({"plan": json.dumps(heuristic_plan)})
+                return [{"text": response_text}]
             def _create_heuristic_plan(self):
                 try:
                     weights_dict = weights or {f: 1.0 for f in output_fields}

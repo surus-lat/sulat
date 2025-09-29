@@ -4,3 +4,6 @@ build
 sulat.egg-info
 sulat/__pycache__
 tests/__pycache__
+
+logs/
+reports/
