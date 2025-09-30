@@ -53,6 +53,7 @@ def autotune(data_source: Union[str, Path], save_optimized_name: str,
              optimize_extractor_schedule: str = "first",
              report_path: Optional[str] = None,
              model: str = "litellm_proxy/google/gemma-3n-E4B-it",
+             reflection_model: str = "google/gemma-3n-E4B-it",
              design_with_llm: bool = False,
              design_model: Optional[str] = None) -> Dict[str, Any]:
     """
@@ -74,6 +75,7 @@ def autotune(data_source: Union[str, Path], save_optimized_name: str,
         optimize_extractor_schedule: When to optimize the extractor ('first', 'last', 'each', 'never')
         report_path: Path to write final JSON report
         model: The model name to use for DSPy optimization (default: 'litellm_proxy/google/gemma-3n-E4B-it')
+        reflection_model: Model to use for GEPA reflection (default: 'litellm_proxy/google/gemma-3n-E4B-it')
         design_with_llm: Whether to use LLM for designing the metric plan (default: False, uses heuristic)
         design_model: Optional model name for metric-plan design when LLM mode is enabled.
     
@@ -86,13 +88,25 @@ def autotune(data_source: Union[str, Path], save_optimized_name: str,
     if not os.getenv("SURUS_API_KEY"):
         raise MissingAPIKeyError("SURUS_API_KEY not set. Optimization with DSPy requires a language model and an API key.")
 
+    def _normalize_model_name(name: Optional[str]) -> str:
+        """
+        Add 'litellm_proxy/' only if requested (SURUS_USE_LITELLM_PROXY != '0') and not already present.
+        """
+        default_model = "google/gemma-3n-E4B-it"
+        name = name or os.getenv("MODEL_NAME") or default_model
+        use_proxy = os.getenv("SURUS_USE_LITELLM_PROXY", "1").lower() not in ("0", "false", "no")
+        if use_proxy and not name.startswith("litellm_proxy/"):
+            return f"litellm_proxy/{name}"
+        return name
+
     # Configure DSPy with the specified or environment-provided model (single configuration)
-    selected_model = "litellm_proxy/"+model or os.getenv("MODEL_NAME", "litellm_proxy/google/gemma-3n-E4B-it")
+    selected_model = _normalize_model_name(model)
     dspy.configure(lm=dspy.LM(
-        selected_model,
+        model=selected_model,
         api_base=os.getenv("SURUS_API_BASE", "https://api.surus.dev/functions/v1"),
         api_key=os.getenv("SURUS_API_KEY")
     ))
+    
     # Set up logging
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
     logger = logging.getLogger(__name__)
@@ -334,7 +348,15 @@ def autotune(data_source: Union[str, Path], save_optimized_name: str,
                 if algorithm == 'gepa':
                     try:
                         from dspy import GEPA
+                        # Use normalized reflection model and same gateway
+                        reflection_lm = dspy.LM(
+                            model=_normalize_model_name(reflection_model or model),
+                            api_base=os.getenv("SURUS_API_BASE", "https://api.surus.dev/functions/v1"),
+                            api_key=os.getenv("SURUS_API_KEY"),
+                            temperature=1.0
+                        )
                         optimizer = GEPA(
+                            reflection_lm=reflection_lm,
                             metric=selected_gepa_metric, 
                             track_stats=True, 
                             auto='heavy'
