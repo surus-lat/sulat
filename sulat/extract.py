@@ -4,32 +4,27 @@ __credits__ = ["SURUS AI"]
 __license__ = "MIT"
 __version__ = "0.1.0"
 __maintainer__ = "SURUS AI"
-__email__ = "contact@surus.ai"
+__email__ = "contact@surus.dev"
 __status__ = "Development"
 
 import requests
 import os
 import json
-import glob
 import random
 import re
 from pathlib import Path
-from typing import Optional, Union, Dict, Any, List
+from typing import Optional, Union, Dict, Any
 from dotenv import load_dotenv
 
 # Load environment variables from .env file
 load_dotenv()
 
 from .config import get_cache_dir
-from .text_utils import _to_int, _norm_text, _norm, _to_bool, _parse_number, _should_keep_punct_for_field
-from .scoring import _score_date, _score_email, _score_url, _score_phone, _score_id, _flatten_to_kv, _score_dict, _score_field_recursive, _detect_field_type, _parse_date, _normalize_url_fallback
-from .data_utils import create_dynamic_signature, load_hf_dataset_and_infer_schema, load_and_infer_schema, build_trainset_from_examples, _get_nested_value, _infer_schema_recursively, infer_metric_schema
+from .data_utils import create_dynamic_signature, load_hf_dataset_and_infer_schema, load_and_infer_schema, build_trainset_from_examples, _get_nested_value, infer_metric_schema
 from .metrics import make_universal_metric
 from .optimization_utils import _save_optimized_program, _safe_mipro, analyze_optimization_report
 
-from dspy.teleprompt import MIPROv2
 import logging
-import inspect
 
 
 class MissingAPIKeyError(EnvironmentError):
@@ -92,7 +87,7 @@ def autotune(data_source: Union[str, Path], save_optimized_name: str,
         raise MissingAPIKeyError("SURUS_API_KEY not set. Optimization with DSPy requires a language model and an API key.")
 
     # Configure DSPy with the specified or environment-provided model (single configuration)
-    selected_model = model or os.getenv("MODEL_NAME", "litellm_proxy/google/gemma-3n-E4B-it")
+    selected_model = "litellm_proxy/"+model or os.getenv("MODEL_NAME", "litellm_proxy/google/gemma-3n-E4B-it")
     dspy.configure(lm=dspy.LM(
         selected_model,
         api_base=os.getenv("SURUS_API_BASE", "https://api.surus.dev/functions/v1"),
@@ -605,7 +600,7 @@ def extract(
     if not api_key:
         raise MissingAPIKeyError("SURUS_API_KEY environment variable not set")
 
-    api_url = "https://api.surus.dev/functions/v1/chat/completions"
+    api_url = os.getenv("SURUS_API_BASE", "https://api.surus.dev/functions/v1") + "/chat/completions"
     headers = {
         "Authorization": f"Bearer {api_key}",
         "Content-Type": "application/json",
