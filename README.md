@@ -99,6 +99,18 @@ result = extract.autotune(
 )
 ```
 
+Provide instructions to steer prompt search:
+
+```python
+result = extract.autotune(
+    data_source="datasets/invoices",
+    input_key="prompt",
+    output_key="label",
+    save_optimized_name="invoice_parser_v1",
+    instructions="Prefer terse JSON with two-sentence rationales."
+)
+```
+
 ## Development
 
 ```bash

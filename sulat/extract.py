@@ -55,7 +55,8 @@ def autotune(data_source: Union[str, Path], save_optimized_name: str,
              model: str = "litellm_proxy/google/gemma-3n-E4B-it",
              reflection_model: str = "google/gemma-3n-E4B-it",
              design_with_llm: bool = False,
-             design_model: Optional[str] = None) -> Dict[str, Any]:
+             design_model: Optional[str] = None,
+             instructions: Optional[str] = None) -> Dict[str, Any]:
     """
     Auto-tune the extraction process using DSPy optimization techniques.
     
@@ -78,6 +79,7 @@ def autotune(data_source: Union[str, Path], save_optimized_name: str,
         reflection_model: Model to use for GEPA reflection (default: 'litellm_proxy/google/gemma-3n-E4B-it')
         design_with_llm: Whether to use LLM for designing the metric plan (default: False, uses heuristic)
         design_model: Optional model name for metric-plan design when LLM mode is enabled.
+        instructions: Custom extractor instructions seeded into the optimizer to steer prompt search.
     
     Returns:
         Dictionary containing optimization results
@@ -111,6 +113,9 @@ def autotune(data_source: Union[str, Path], save_optimized_name: str,
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
     logger = logging.getLogger(__name__)
     
+    if instructions is not None:
+        logger.info("Seeding extractor with custom instructions (%d chars).", len(instructions or ""))
+    
     # Determine if data_source is a directory or a HuggingFace dataset
     is_hf_dataset = False
     if Path(data_source).is_dir():
@@ -140,6 +145,10 @@ def autotune(data_source: Union[str, Path], save_optimized_name: str,
     # Create dynamic signature based on the inferred schema
     DynamicSignature, path_to_attr = create_dynamic_signature(input_key, output_schema)
     
+    predict_kwargs = {"instructions": instructions} if instructions is not None else {}
+    def _make_predictor():
+        return dspy.Predict(DynamicSignature, **predict_kwargs) if predict_kwargs else dspy.Predict(DynamicSignature)
+
     # Build trainset based on the data source
     if raw_examples is not None:
         trainset = build_trainset_from_examples(
@@ -199,10 +208,40 @@ def autotune(data_source: Union[str, Path], save_optimized_name: str,
     def make_gepa_wrapper(metric_fn, label="universal"):
         def gepa_metric(gold, pred, trace=None, pred_name=None, pred_trace=None):
             try:
-                score = float(metric_fn(gold, pred))
-            except Exception:
+                # Try calling with trace first (for metrics that support it)
+                raw = metric_fn(gold, pred, trace=trace)
+            except TypeError:
+                # Fall back to calling without trace
+                try:
+                    raw = metric_fn(gold, pred)
+                except Exception as e:
+                    logger.debug(f"Metric evaluation failed: {e}")
+                    raw = 0.0
+            except Exception as e:
+                logger.debug(f"Metric evaluation failed: {e}")
+                raw = 0.0
+            
+            # Extract score value
+            if isinstance(raw, dict):
+                score_val = raw.get("score", 0.0)
+            else:
+                score_val = getattr(raw, "score", raw)
+            
+            # Ensure score is a float
+            try:
+                score = float(score_val)
+            except (TypeError, ValueError):
                 score = 0.0
-            return dspy.Prediction(score=score, feedback=f"{label} metric score={score:.3f}")
+            
+            # Clamp score to [0.0, 1.0]
+            score = max(0.0, min(1.0, score))
+            
+            # Create feedback message
+            target = pred_name or "program"
+            feedback = f"{label} metric score={score:.3f} for {target}."
+            
+            # Return as dspy.Prediction (GEPA expects this format, not plain dict)
+            return dspy.Prediction(score=score, feedback=feedback)
         return gepa_metric
 
     selected_gepa_metric = make_gepa_wrapper(selected_metric)
@@ -228,21 +267,48 @@ def autotune(data_source: Union[str, Path], save_optimized_name: str,
             self.scorer = dspy.Predict(_MetricScorerSignature if use_feedback else _SimpleMetricScorerSignature)
 
         def _serialize(self, ex):
-            if not ex: return "None"
-            fields = [f"- {k}: {getattr(ex, k, None)}" for k in self.output_fields if getattr(ex, k, None) is not None]
+            if not ex: 
+                return "None"
+            fields = []
+            for k in self.output_fields:
+                try:
+                    val = getattr(ex, k, None)
+                    if val is not None:
+                        # Convert value to string safely to avoid format string errors
+                        val_str = json.dumps(val) if isinstance(val, (dict, list)) else str(val)
+                        fields.append(f"- {k}: {val_str}")
+                except Exception as e:
+                    logger.debug(f"Failed to serialize field {k}: {e}")
+                    continue
             return "\n".join(fields) or "No relevant fields found."
 
         def forward(self, gold, pred, trace=None, **kwargs):
-            py_score = self.metric_fn(gold, pred, trace=trace, **kwargs)
-            py_score = getattr(py_score, 'score', py_score)
-            lm_result = self.scorer(gold=f"Gold standard:\n{self._serialize(gold)}", pred=f"Prediction:\n{self._serialize(pred)}")
-            lm_score = py_score
+            # Get Python metric score
             try:
+                py_score = self.metric_fn(gold, pred, trace=trace, **kwargs)
+                py_score_val = getattr(py_score, 'score', py_score)
+                py_score_val = float(py_score_val) if py_score_val is not None else 0.0
+            except Exception as e:
+                logger.debug(f"Python metric failed: {e}")
+                py_score_val = 0.0
+            
+            # Get LM score
+            try:
+                gold_str = f"Gold standard:\n{self._serialize(gold)}"
+                pred_str = f"Prediction:\n{self._serialize(pred)}"
+                lm_result = self.scorer(gold=gold_str, pred=pred_str)
+                lm_score = py_score_val
                 if score_match := re.search(r"([0-9.]+)", str(lm_result.score)):
-                    lm_score = float(score_match.group(1))
-            except (ValueError, TypeError, AttributeError): pass
+                    try:
+                        lm_score = float(score_match.group(1))
+                    except (ValueError, TypeError):
+                        lm_score = py_score_val
+            except Exception as e:
+                logger.debug(f"LM scorer failed: {e}")
+                lm_score = py_score_val
+            
             if self.use_feedback:
-                feedback = getattr(lm_result, 'feedback', f"Python score: {py_score:.3f}, LM score: {lm_score:.3f}")
+                feedback = getattr(lm_result, 'feedback', f"Python score: {py_score_val:.3f}, LM score: {lm_score:.3f}")
                 return dspy.Prediction(score=lm_score, feedback=feedback)
             return lm_score
 
@@ -273,7 +339,7 @@ def autotune(data_source: Union[str, Path], save_optimized_name: str,
             
             # Create metric optimization examples
             metric_trainset = []
-            base_extractor = dspy.Predict(DynamicSignature)
+            base_extractor = _make_predictor()
             for ex in metric_trainset_examples:
                 try:
                     pred = base_extractor(**{input_key: getattr(ex, input_key)})
@@ -312,9 +378,10 @@ def autotune(data_source: Union[str, Path], save_optimized_name: str,
                     # Use the optimized metric
                     if hasattr(optimized_metric_program, 'metric_fn'):
                         selected_metric = getattr(optimized_metric_program, 'forward', optimized_metric_program)
-                        selected_gepa_metric = selected_metric
                     else:
                         selected_metric = optimized_metric_program.forward if hasattr(optimized_metric_program, 'forward') else optimized_metric_program
+                    # Ensure GEPA receives a proper 5-arg metric wrapper after any metric update
+                    selected_gepa_metric = make_gepa_wrapper(selected_metric)
                     logger.info("Metric optimization complete.")
                     
                     iteration_report["metric_optimization"] = {
@@ -361,7 +428,7 @@ def autotune(data_source: Union[str, Path], save_optimized_name: str,
                             track_stats=True, 
                             auto='heavy'
                         )
-                        extractor = dspy.Predict(DynamicSignature)
+                        extractor = _make_predictor()
                         effective_valset = valset if valset else trainset_core[:min(len(trainset_core), 16)]
                         optimized_extractor = optimizer.compile(
                             extractor, 
@@ -379,7 +446,7 @@ def autotune(data_source: Union[str, Path], save_optimized_name: str,
                             max_labeled_demos=max_labeled_demos,
                             num_trials=num_trials
                         )
-                        extractor = dspy.Predict(DynamicSignature)
+                        extractor = _make_predictor()
                         optimized_extractor = optimizer.compile(
                             extractor,
                             trainset=trainset_core
@@ -393,7 +460,7 @@ def autotune(data_source: Union[str, Path], save_optimized_name: str,
                         max_labeled_demos=max_labeled_demos,
                         num_trials=num_trials
                     )
-                    extractor = dspy.Predict(DynamicSignature)
+                    extractor = _make_predictor()
                     optimized_extractor = optimizer.compile(
                         extractor,
                         trainset=trainset_core
@@ -411,7 +478,7 @@ def autotune(data_source: Union[str, Path], save_optimized_name: str,
         else:
             # If we're not optimizing this iteration but have an extractor (from previous iteration or initial)
             if 'optimized_extractor' not in locals():
-                extractor = dspy.Predict(DynamicSignature)
+                extractor = _make_predictor()
                 optimized_extractor = extractor  # Use non-optimized version
 
         # Add iteration report to collection
@@ -488,6 +555,7 @@ def autotune(data_source: Union[str, Path], save_optimized_name: str,
         "input_key": input_key,
         "output_key": output_key,
         "final_average_score": avg_score,
+        "instructions": instructions,
         "stats": stats
     }
 
