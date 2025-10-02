@@ -49,15 +49,22 @@ def translate(text: str,
     if sampling_params:
         payload["sampling_params"] = sampling_params
 
-    response = requests.post(api_url, headers=headers, json=payload)
     try:
+        # Use a connect/read timeout tuple so unresponsive servers fail fast.
+        response = requests.post(api_url, headers=headers, json=payload, timeout=(3.05, 27))
         response.raise_for_status()
+    except requests.exceptions.Timeout as err:
+        # Timed out connecting to or reading from the SURUS API
+        raise TimeoutError("Timeout while contacting SURUS API") from err
     except requests.HTTPError as err:
         try:
             error_json = response.json()
         except ValueError:
             error_json = {"error": response.text}
         raise Exception(f"SURUS API error {response.status_code}: {error_json}") from err
+    except requests.RequestException as err:
+        # Catch other requests-related errors (connection errors, invalid URL, etc.)
+        raise Exception("Error while contacting SURUS API") from err
 
     result = response.json()
     return result.get("choices", [{}])[0].get("message", {}).get("content", "")
