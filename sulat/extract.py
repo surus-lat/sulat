@@ -55,11 +55,19 @@ def extract(
     """
     if load_optimized_name is not None:
         # Load optimized program from cache
-        cache_dir = Path(get_cache_dir())
-        program_dir = cache_dir / load_optimized_name
-        
+        cache_dir = Path(get_cache_dir()).resolve()
+        # Sanitize load_optimized_name to avoid path traversal or absolute paths
+        safe_name = os.path.basename(load_optimized_name)
+        program_dir = (cache_dir / safe_name).resolve()
+
+        # Ensure the resolved program_dir is a descendant of cache_dir
+        try:
+            program_dir.relative_to(cache_dir)
+        except Exception:
+            raise FileNotFoundError(f"Optimized program '{load_optimized_name}' resolves outside the cache directory")
+
         if not program_dir.exists():
-            raise FileNotFoundError(f"Optimized program '{load_optimized_name}' not found in cache. Run autotune first.")
+            raise FileNotFoundError(f"Optimized program '{safe_name}' not found in cache. Run autotune first.")
         
         import dspy
         # Load the metadata to get information about the program
@@ -87,15 +95,25 @@ def extract(
             # Try fallback methods
             program_pickle_path = program_dir / "program.pkl"
             if program_pickle_path.exists():
+                # Prefer using dspy.load() even for the pickle path if dspy supports it
                 try:
-                    import pickle
-                    with open(program_pickle_path, 'rb') as f:
-                        optimized_program = pickle.load(f)
-                    print(f"Using optimized configuration: {load_optimized_name} (loaded with pickle)")
-                except Exception as pickle_error:
-                    print(f"Also failed with pickle load: {pickle_error}")
-                    # Fallback to original API approach
-                    pass
+                    optimized_program = dspy.load(str(program_pickle_path))
+                    print(f"Using optimized configuration: {safe_name} (loaded with dspy.load from pickle path)")
+                except Exception as dspy_pickle_load_error:
+                    # Only allow raw pickle deserialization if explicitly opted-in via env var
+                    allow_pickle = os.getenv("SULAT_ALLOW_PICKLE_CACHE", "false").lower() in ("1", "true", "yes")
+                    if allow_pickle:
+                        try:
+                            import pickle
+                            with open(program_pickle_path, 'rb') as f:
+                                optimized_program = pickle.load(f)
+                            print(f"Using optimized configuration: {safe_name} (loaded with pickle - opt-in)")
+                        except Exception as pickle_error:
+                            print(f"Also failed with pickle load: {pickle_error}")
+                            # Fallback to original API approach
+                            pass
+                    else:
+                        print("Skipping unsafe pickle.load for cached program (SULAT_ALLOW_PICKLE_CACHE not set).")
         
         if optimized_program is not None:
             dspy.configure(lm=dspy.LM(os.getenv("MODEL_NAME", "litellm_proxy/google/gemma-3n-E4B-it"), api_base=os.getenv("SURUS_API_BASE", "https://api.surus.dev/functions/v1"), api_key=os.getenv("SURUS_API_KEY")))
@@ -115,11 +133,18 @@ def extract(
                 if hasattr(result, '_store'):
                     # DSPy prediction with _store attribute
                     raw_output_dict = {k: v for k, v in result._store.items() if not k.startswith('_') and k != input_key}
-                elif hasattr(result, 'items') or hasattr(result, '__getitem__'):
-                    # If result is dict-like
-                    raw_output_dict = {k: v for k, v in result.items() if not k.startswith('_') and k != input_key}
+                elif hasattr(result, 'items') and callable(getattr(result, 'items', None)):
+                    # If result implements .items(), treat it as dict-like
+                    try:
+                        raw_output_dict = {k: v for k, v in result.items() if not k.startswith('_') and k != input_key}
+                    except Exception:
+                        # Fall back to attribute introspection if items() fails unexpectedly
+                        raw_output_dict = {}
+                        for attr_name in dir(result):
+                            if not attr_name.startswith('_') and attr_name != input_key and not callable(getattr(result, attr_name)):
+                                raw_output_dict[attr_name] = getattr(result, attr_name)
                 else:
-                    # Try to extract attributes from the result object
+                    # Try to extract attributes from the result object (handles sequences and other objects)
                     for attr_name in dir(result):
                         if not attr_name.startswith('_') and attr_name != input_key and not callable(getattr(result, attr_name)):
                             raw_output_dict[attr_name] = getattr(result, attr_name)
