@@ -14,6 +14,6 @@ ensure_cache_dir()
 
 from .transcribe import transcribe
 from .extract import extract
+from .translate import translate
 
-__all__ = ["ensure_cache_dir", "get_cache_dir", "transcribe", "extract"]
-
+__all__ = ["ensure_cache_dir", "extract", "get_cache_dir", "transcribe", "translate"]
