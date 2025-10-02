@@ -84,32 +84,6 @@ export SURUS_API_KEY="your_api_key"
 export SURUS_CACHE="/custom/cache/dir"
 ```
 
-## Autotuning
-
-```python
-from sulat import extract
-
-result = extract.autotune(
-    data_source="datasets/invoices",
-    save_optimized_name="invoice_parser_v1",
-    input_key="prompt",
-    output_key="label",
-    optimize_metric=True,
-    metric_iterations=2
-)
-```
-
-Provide instructions to steer prompt search:
-
-```python
-result = extract.autotune(
-    data_source="datasets/invoices",
-    input_key="prompt",
-    output_key="label",
-    save_optimized_name="invoice_parser_v1",
-    instructions="Prefer terse JSON with two-sentence rationales."
-)
-```
 
 ## Development
 
