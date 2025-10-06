@@ -1,5 +1,5 @@
 <div align="center">
-  <h1>owai</h1>
+  <h1>sulat</h1>
   <img src="public/icon.png" alt="icon" width="80" height="80">
   <p><em>an Opinionated Way of doing AI</em></p>
 </div>
