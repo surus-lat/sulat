@@ -1,20 +1,20 @@
 #!/usr/bin/env python
 
-__author__ = "neosanma"
+__author__ = "surus"
 __copyright__ = "SURUS AI"
 __credits__ = ["SURUS AI"]
 __license__ = "MIT"
 __version__ = "0.1.0"
-__maintainer__ = "neosanma"
-__email__ = "contacto@neosanma.ai"
+__maintainer__ = "surus"
+__email__ = "contacto@surus.dev"
 __status__ = "Development"
 
 
 import os
-import owai
+import sulat
 
 def test_api_integration():
-    """Test owai transcribe with real API (requires SURUS_API_KEY and audio file)"""
+    """Test sulat transcribe with real API (requires SURUS_API_KEY and audio file)"""
     
     # Check API key
     api_key = os.getenv("SURUS_API_KEY")
@@ -29,11 +29,11 @@ def test_api_integration():
     # For demo purposes, show what the API calls would look like
     print("\n📝 Example usage (needs real audio file):")
     print("# Default model (Whisper)")
-    print("result = surus.transcribe('audio.wav')")
+    print("result = sulat.transcribe('audio.wav')")
     print("# Model: surus-lat/whisper-large-v3-turbo-latam")
     
     print("\n# High performance model (Canary)")
-    print("result = surus.transcribe('audio.wav', high_performance=True, source_lang='es')")
+    print("result = sulat.transcribe('audio.wav', high_performance=True, source_lang='es')")
     print("# Model: nvidia/canary-1b-v2")
     
     print(f"\n🔗 API Endpoint: https://api.surus.dev/functions/v1/audio/transcriptions")
@@ -41,7 +41,7 @@ def test_api_integration():
     
     try:
         # This will fail without a real audio file, but shows the error handling
-        surus.transcribe("nonexistent.wav")
+        sulat.transcribe("nonexistent.wav")
     except FileNotFoundError:
         print("✓ File error handling works")
     except Exception as e:

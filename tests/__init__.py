@@ -1,11 +1,11 @@
 #!/usr/bin/env python
 
-__author__ = "neosanma"
+__author__ = "surus"
 __copyright__ = "SURUS AI"
 __credits__ = ["SURUS AI"]
 __license__ = "MIT"
 __version__ = "0.1.0"
-__maintainer__ = "neosanma"
-__email__ = "contacto@neosanma.ai"
+__maintainer__ = "surus"
+__email__ = "contacto@surus.dev"
 __status__ = "Development"
 

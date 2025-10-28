@@ -6,22 +6,22 @@ __credits__ = ["SURUS AI"]
 __license__ = "GPL"
 __version__ = "0.0.1"
 __maintainer__ = "SURUS AI"
-__email__ = "contact@surus.ai"
+__email__ = "contact@surus.dev"
 __status__ = "Development"
 
 import pytest
-import owai
+import sulat
 
 
 def test_transcribe_function_exists():
     """Test that transcribe function is available"""
-    assert hasattr(owai, 'transcribe')
+    assert hasattr(sulat, 'transcribe')
 
 
 def test_transcribe_parameters():
     """Test transcribe function has correct parameters"""
     import inspect
-    sig = inspect.signature(owai.transcribe)
+    sig = inspect.signature(sulat.transcribe)
     expected_params = ['audio_input', 'high_performance', 'source_lang', 'target_lang', 'response_format', 'temperature']
     
     for param in expected_params:
@@ -38,7 +38,7 @@ def test_transcribe_missing_api_key():
     
     try:
         with pytest.raises(ValueError, match="SURUS_API_KEY environment variable not set"):
-            owai.transcribe("dummy.wav")
+            sulat.transcribe("dummy.wav")
     finally:
         # Restore API key
         if old_key:
