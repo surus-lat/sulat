@@ -1,15 +1,15 @@
 <div align="center">
   <h1>sulat</h1>
   <img src="public/icon.png" alt="sulat icon" width="80" height="80">
-  <p><em>Task-oriented AI nodes for transcription and structured extraction</em></p>
+  <p><em>Task-oriented AI nodes for transcription, translation, and structured extraction</em></p>
 </div>
 
 ## Overview
 
 `sulat` wraps SURUS AI endpoints to provide:
-- **Speech transcription** with automatic mono conversion fallback.
-- **Structured extraction** guided by JSON schemas or optimized DSPy programs.
-- **Metric and extractor autotuning** for production-ready pipelines.
+- **Speech transcription** with high-performance model option.
+- **Structured extraction** guided by JSON schemas.
+- **Text translation** between languages.
 
 Python ≥ 3.9 is recommended.
 
@@ -35,12 +35,11 @@ import sulat
 # Whisper-style transcription
 text = sulat.transcribe("audio.wav")
 
-# Canary high-performance transcription
+# High-performance transcription with source language
 text_hp = sulat.transcribe(
     "audio.wav",
     high_performance=True,
-    source_lang="es",
-    target_lang="en"
+    source_lang="es"
 )
 ```
 
@@ -61,12 +60,12 @@ result = sulat.extract(
 )
 ```
 
-Use a cached DSPy program:
+### Text Translation
 
 ```python
-optimized = sulat.extract(
-    text="Invoice #123 is due on 2024-07-01.",
-    load_optimized_name="invoice_parser_v1"
+translated_text = sulat.translate(
+    text="Hello, world!",
+    target_lang="es"
 )
 ```
 
@@ -95,7 +94,7 @@ pytest
 ```
 
 Troubleshooting tips:
-- Install `pydub` (and `ffmpeg`) for local stereo-to-mono conversion.
+- Install `pydub` (and `ffmpeg`) for local stereo-to-mono conversion if needed.
 - Ensure `SURUS_API_BASE` if you use a custom proxy.
 
 

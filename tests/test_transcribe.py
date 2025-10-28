@@ -22,10 +22,13 @@ def test_transcribe_parameters():
     """Test transcribe function has correct parameters"""
     import inspect
     sig = inspect.signature(sulat.transcribe)
-    expected_params = ['audio_input', 'high_performance', 'source_lang', 'target_lang', 'response_format', 'temperature']
+    expected_params = ['audio_input', 'high_performance', 'source_lang']
     
     for param in expected_params:
         assert param in sig.parameters, f"Missing parameter: {param}"
+    
+    # Check that **kwargs is present
+    assert 'kwargs' in sig.parameters, "Missing **kwargs parameter"
 
 
 def test_transcribe_missing_api_key():

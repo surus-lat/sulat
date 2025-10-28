@@ -75,113 +75,54 @@ def _convert_to_mono(audio_path: str) -> str:
 def transcribe(audio_input: Union[str, BinaryIO], 
                high_performance: bool = True,
                source_lang: Optional[str] = 'es', 
-               target_lang: Optional[str] = 'es',
-               response_format: str = "json", 
-               temperature: float = 0.0) -> str:
+               **kwargs) -> str:
     """
-    Transcribe audio to text using SURUS API.
+    Transcribe audio to text using SURUS API via the new /transcribe endpoint.
     
     Args:
-        audio_input: Path to audio file or file-like object. Stereo files are automatically converted to mono.
-        high_performance: Use best model (nvidia/canary-1b-v2) for higher accuracy
-        source_lang: Source language for Canary model (e.g., 'es', 'en')  
-        target_lang: Target language for Canary model (e.g., 'es', 'en')
-        response_format: Output format for Whisper models ('json', 'text', 'srt', 'verbose_json', 'vtt')
-        temperature: Sampling temperature for Whisper models (0-1)
+        audio_input: Path to audio file or file-like object.
+        high_performance: Use high performance model (determines which model internally).
+        source_lang: Source language for transcription (e.g., 'es', 'en').
+        **kwargs: Additional parameters to pass to the API.
     
     Returns:
         Transcribed text
-        
-    Behavior:
-        - First, sends audio as-is to the SURUS API (server is expected to handle conversion).
-        - If the API responds with a stereo/mono channel error, sulat will retry by converting
-          locally to mono ONLY when pydub (and ffmpeg) are available.
-        - If pydub is not available, a clear error message is raised with guidance.
     """
     api_key = os.getenv("SURUS_API_KEY")
     if not api_key:
         raise ValueError("SURUS_API_KEY environment variable not set")
     
-    api_url = "https://api.surus.dev/functions/v1/audio/transcriptions"
+    api_url = "https://api.surus.dev/functions/v1/transcribe"
     headers = {"Authorization": f"Bearer {api_key}"}
     
-    # Model selection
-    model = 'nvidia/canary-1b-v2' if high_performance else 'surus-lat/whisper-large-v3-turbo-latam'
-    
     # Prepare form data
-    data = {'model': model}
+    data = {'high_performance': high_performance}
     
-    # Add model-specific parameters
-    if model == 'nvidia/canary-1b-v2':
-        if source_lang:
-            data['source_lang'] = source_lang
-        if target_lang:
-            data['target_lang'] = target_lang
-    else:
-        data['response_format'] = response_format
-        if temperature != 0.0:
-            data['temperature'] = temperature
+    # Add optional parameters
+    if source_lang:
+        data['source_lang'] = source_lang
     
-    # Both models actually use 'file' field (API docs were incorrect)
-    file_field = 'file'
-    
-    # Store debug info for error cases
-    debug_info = {
-        'api_url': api_url,
-        'model': model,
-        'data': data,
-        'file_field': file_field
-    }
-    
-    # First attempt: send audio as-is
-    temp_file_path = None
-    def _post_file(file_obj: BinaryIO):
-        return requests.post(api_url, headers=headers, data=data, files={file_field: file_obj})
+    # Add any additional parameters passed as kwargs
+    data.update(kwargs)
 
+    # Handle file upload
     if isinstance(audio_input, str):
         with open(audio_input, 'rb') as f:
-            response = _post_file(f)
+            files = {'file': f}
+            response = requests.post(api_url, headers=headers, data=data, files=files)
     else:
-        response = _post_file(audio_input)
+        # For file-like objects, we need to pass the object directly
+        files = {'file': audio_input}
+        response = requests.post(api_url, headers=headers, data=data, files=files)
 
-    # If not OK, optionally retry after local mono conversion (when available)
-    if response.status_code != 200:
-        # Try to extract server error JSON
-        error_text = None
-        error_json = None
+    try:
+        response.raise_for_status()
+    except requests.HTTPError as err:
         try:
             error_json = response.json()
         except ValueError:
-            error_text = response.text
+            error_json = {"error": response.text}
+        raise Exception(f"SURUS API error {response.status_code}: {error_json}") from err
 
-        stereo_error = False
-        if error_json and isinstance(error_json, dict):
-            detail = str(error_json.get('detail', ''))
-            stereo_error = ('single channel' in detail.lower()) or ('mono' in detail.lower())
-
-        if stereo_error and isinstance(audio_input, str):
-            # Retry with local mono conversion if pydub is available
-            try:
-                mono_audio_path = _convert_to_mono(audio_input)
-                temp_file_path = mono_audio_path if mono_audio_path != audio_input else None
-                with open(mono_audio_path, 'rb') as f:
-                    response = _post_file(f)
-            finally:
-                if temp_file_path and os.path.exists(temp_file_path):
-                    os.unlink(temp_file_path)
-
-        # If still not OK, raise with debug info
-        if response.status_code != 200:
-            print("🐛 Debug information:")
-            print(f"   API URL: {debug_info['api_url']}")
-            print(f"   Model: {debug_info['model']}")
-            print(f"   Data: {debug_info['data']}")
-            print(f"   File field: {debug_info['file_field']}")
-            print()
-            if error_json is not None:
-                raise Exception(f"API Error {response.status_code}: {error_json}")
-            else:
-                raise Exception(f"API Error {response.status_code}: {error_text}")
-    
     result = response.json()
     return result.get('text', str(result))

@@ -30,7 +30,8 @@ sample_data = [
 
 def test_autotune():
     """Test the autotune function with sample data."""
-    from sulat.extract import autotune
+    import pytest
+    pytest.skip("Autotune functionality has been removed with the new task endpoints. DSPy optimization is no longer used.")
     
     # Create a temporary directory for test data
     with tempfile.TemporaryDirectory() as temp_dir:

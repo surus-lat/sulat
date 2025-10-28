@@ -17,37 +17,27 @@ load_dotenv()
 
 def translate(text: str,
               target_lang: str,
-              model: Optional[str] = None,
-              sampling_params: Optional[dict] = None) -> str:
+              **kwargs) -> str:
     """
-    Translate text using SURUS chat completions API.
+    Translate text using SURUS API via the new /translate endpoint.
     """
     api_key = os.getenv("SURUS_API_KEY")
     if not api_key:
         raise ValueError("SURUS_API_KEY environment variable not set")
 
-    if sampling_params is not None and not isinstance(sampling_params, dict):
-        raise TypeError("sampling_params must be a dict when provided")
-
-    api_url = "https://api.surus.dev/functions/v1/chat/completions"
+    api_url = "https://api.surus.dev/functions/v1/translate"
     headers = {
         "Authorization": f"Bearer {api_key}",
         "Content-Type": "application/json",
     }
+    
     payload = {
-        "model": model or "tencent/Hunyuan-MT-7B-fp8",
-        "messages": [
-            {
-                "role": "user",
-                "content": (
-                    f"Translate the following segment into {target_lang}, without additional explanation.\n\n"
-                    f"{text}"
-                ),
-            }
-        ],
+        "text": text,
+        "target_lang": target_lang
     }
-    if sampling_params:
-        payload["sampling_params"] = sampling_params
+    
+    # Add any additional parameters passed as kwargs
+    payload.update(kwargs)
 
     try:
         # Use a connect/read timeout tuple so unresponsive servers fail fast.
@@ -67,4 +57,4 @@ def translate(text: str,
         raise Exception("Error while contacting SURUS API") from err
 
     result = response.json()
-    return result.get("choices", [{}])[0].get("message", {}).get("content", "")
+    return result.get("text", str(result))
