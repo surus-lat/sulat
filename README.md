@@ -97,3 +97,8 @@ pytest
 Troubleshooting tips:
 - Install `pydub` (and `ffmpeg`) for local stereo-to-mono conversion.
 - Ensure `SURUS_API_BASE` if you use a custom proxy.
+
+
+## Run tests
+pytest tests/
+```
